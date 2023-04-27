@@ -1,8 +1,9 @@
 module Syntax where
 
+import Free.Scope (Sc)
+
 data Type
-  = UnitT
-  | ModuleT
+  = ModuleT
   | NumT
   deriving Eq
 -- To use inference, replace `Type` with
@@ -11,6 +12,7 @@ data Type
 -- See also `lang-hm/Syntax` for an example.
 
 type Prog = [Module]
+type Prog' = [(Module, Sc)]
 
 data Module
   = Module String [String] [Expr]
@@ -22,11 +24,10 @@ data Expr
   deriving (Eq, Show)
 
 instance Show Type where
-  show UnitT = "void"
-  show ModuleT = "module type"
+  show ModuleT = "module"
   show NumT = "num"
 
 example :: Prog
 example = 
   [ Module "a" [] [VarDecl "x" $ Num 1]
-  , Module "b" ["a"] [VarDecl "y" $ Ident "x"] ]
+  , Module "b" ["a"] [VarDecl "y" $ Num 2] ]
