@@ -66,4 +66,8 @@ tc _ _ = undefined
 
 -- Tie it all together
 runTC :: LProg -> Either String (Ty, Graph Label Decl)
-runTC _ = undefined
+runTC e = un
+        $ handle hErr
+        $ flip (handle_ hScope) emptyGraph
+        $ flip (handle_ hEquals) Map.empty
+        $ handle_ hScope (tc e 0) emptyGraph
