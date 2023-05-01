@@ -66,8 +66,23 @@ tc _ _ = undefined
 
 -- Tie it all together
 runTC :: LProg -> Either String (Ty, Graph Label Decl)
-runTC e = un
+runTC e =
+  let x = un
         $ handle hErr
         $ flip (handle_ hScope) emptyGraph
         $ flip (handle_ hEquals) Map.empty
-        $ handle_ hScope (tc e 0) emptyGraph
+        $ handle_ hExists
+        (tc e 0
+        :: Free ( Exists Ty
+                + Equals Ty
+                + Scope Sc Label Decl
+                + Error String
+                + Nop )
+                Ty
+        ) 0
+  in case x of
+    Left err -> Left err
+    Right (Left (UnificationError t1 t2), _)  -> Left $ "Unification error: " ++ show t1 ++ " != " ++ show t2
+    Right (Right (t, u), sg)                  ->
+      let t' = explicate u t in
+        Right (t', sg)
