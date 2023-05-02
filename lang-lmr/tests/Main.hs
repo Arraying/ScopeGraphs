@@ -17,11 +17,6 @@ testApplicationPlus :: IO ()
 testApplicationPlus = do
   assertEqual "Incorrect type" 1 1
 
-testAdd1 :: IO ()
-testAdd1 = do
-  res <- runTCTest $ Plus (Num 1) (Num 18)
-  assertEqual "Incorrect type" numT $ fst res
-
 tests :: Test
 tests = TestList
   [ "./aterm-res/lmr/empty.aterm" ~: testP1

@@ -12,6 +12,7 @@ import Free.Error
 import Free.Logic.Exists
 import Free.Logic.Equals
 import Syntax
+import Modules
 
 data Label
   = P -- Lexical parent.
@@ -59,6 +60,23 @@ matchDecl x (Modl x' _) = x == x'
 ------------------
 -- Scope Graphs --
 ------------------
+
+constrHierarchy :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
+-- In the root level, we just take the root scope and add any information.
+constrHierarchy (Anon imports children decls) g = do
+  children' <- mapM (`constrHierarchy` g) children
+  return $ AAnon g imports children' decls
+-- In any other case, we recursively create the tree and annotate it.
+constrHierarchy (Named name imports children decls) g = do
+  -- Create a new scope for this module, it can be nested.
+  g' <- new
+  edge g' P g
+  -- Register the module with its parent scope.
+  sink g M $ Modl name g'
+  -- Now we recursively create and annotate all the children.
+  children' <- mapM (`constrHierarchy` g') children
+  -- Return the annotated tree with the scope.
+  return $ ANamed g' name imports children' decls
 
 ------------------
 -- Type Checker --
@@ -152,6 +170,7 @@ runTC e =
       let t' = explicate u t in
         Right (t', sg)
 
+-- For debugging.
 runTCExp :: LExp -> Either String (Ty, Graph Label Decl)
 runTCExp e =
   let x = un
@@ -173,3 +192,10 @@ runTCExp e =
     Right (Right (t, u), sg)                  ->
       let t' = explicate u t in
         Right (t', sg)
+
+-- For debugging.
+runTCMod :: ModTree -> Either String (Graph Label Decl)
+runTCMod t = fmap snd 
+        $ un
+        $ handle hErr
+        $ handle_ hScope (constrHierarchy t 0) emptyGraph
