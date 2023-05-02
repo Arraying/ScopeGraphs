@@ -14,6 +14,7 @@ import Free.Logic.Equals
 import Syntax
 import Modules
 import Data.List
+import Debug.Trace
 
 data Label
   = P -- Lexical parent.
@@ -49,9 +50,9 @@ sink = S.sink @_ @Label @Decl
 re :: RE Label
 re = Dot (Star $ Atom P) $ Atom V
 
--- Regular expression P*M
+-- Regular expression (P|I)*M
 re' :: RE Label
-re' = Dot (Star $ Atom P) $ Atom M
+re' = Dot (Star $ Pipe (Atom P) (Atom I)) $ Atom M
 
 -- Path order based on length
 pShortest :: PathOrder Label Decl
@@ -97,7 +98,7 @@ constrImports m = do
   where
     -- Helper that calls itself until no changes have been made.
     iterator modl = do
-      (modl', v) <- constrImportIteration modl
+      (modl', v) <- trace "!!!! PERFORMED ITERATION !!!!" $  constrImportIteration modl
       if v then iterator modl' else return modl'
 
 -- A singular iteration/walkthrough of a tree of trying to resolve imports.
@@ -132,7 +133,7 @@ constrImportReduction g (x:xs) = do
     -- We have found the module, so we add the edge.
     (Just g') -> do
       -- Create the import edge.
-      edge g I g'
+      trace ("Resolved import " ++ show x ++ " to " ++ show g') $ edge g I g'
       -- Signal that we have found it!
       return (True, others)
     -- We have not found the module, use rest.
