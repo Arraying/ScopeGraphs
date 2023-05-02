@@ -3,6 +3,7 @@ module TypeCheck where
 import Data.Functor
 import qualified Data.Map as Map
 import Data.Regex
+import qualified Data.Term as T
 
 import Free
 import Free.Scope hiding (edge, new, sink)
@@ -13,19 +14,24 @@ import Free.Logic.Equals
 import Syntax
 
 data Label
-  = P -- Lexical Parent Label
-  | D -- Declaration
+  = P -- Lexical parent.
+  | I -- Import.
+  | M -- Module.
+  | V -- Variable.
   deriving (Show, Eq)
 
 data Decl
-  = Decl String Ty   -- Variable declaration
+  = Var String Ty -- Variable declaration.
+  | Modl String Sc -- Module declaration.
   deriving (Eq)
 
 instance Show Decl where
-  show (Decl x t) = x ++ " : " ++ show t
+  show (Var x t) = x ++ " : " ++ show t
+  show (Modl x s) = "module " ++ x ++ " @ " ++ show s
 
 projTy :: Decl -> Ty
-projTy (Decl _ t) = t
+projTy (Var _ t) = t
+projTy (Modl _ _) = error "Critical runtime error: projecting module"
 
 -- Scope Graph Library Convenience
 edge :: Scope Sc Label Decl < f => Sc -> Label -> Sc -> Free f ()
@@ -39,7 +45,7 @@ sink = S.sink @_ @Label @Decl
 
 -- Regular expression P*D
 re :: RE Label
-re = Dot (Star $ Atom P) $ Atom D
+re = Dot (Star $ Atom P) $ Atom V
 
 -- Path order based on length
 pShortest :: PathOrder Label Decl
@@ -47,11 +53,70 @@ pShortest p1 p2 = lenRPath p1 < lenRPath p2
 
 -- Match declaration with particular name
 matchDecl :: String -> Decl -> Bool
-matchDecl x (Decl x' _) = x == x'
+matchDecl x (Var x' _) = x == x'
+matchDecl x (Modl x' _) = x == x'
+
+------------------
+-- Scope Graphs --
+------------------
 
 ------------------
 -- Type Checker --
 ------------------
+
+tcExp :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> Sc -> Free f Ty
+tcExp (Num _) _ = return numT
+tcExp Tru _ = return boolT
+tcExp Fls _ = return boolT
+tcExp (Syntax.Id ident) g = do
+  ds <- getQuery ident <&> map projTy
+  case ds of 
+    []  -> err "No matching declarations found"
+    [t] -> return t
+    _   -> err "BUG: Multiple declarations found" -- cannot happen for STLC
+  where
+    getQuery (LILiteral x) = query g re pShortest (matchDecl x)
+    getQuery _ = err "Unsupported querying"
+tcExp (Plus l r) g = binop l r numT numT g
+tcExp (Minus l r) g = binop l r numT numT g
+tcExp (Mult l r) g = binop l r numT numT g
+tcExp (Eql l r) g = binop l r numT boolT g
+tcExp (If c t e) g = do
+  c' <- tcExp c g
+  t' <- tcExp t g
+  f' <- tcExp e g
+  if c' == boolT then
+    if t' == f' then return t' else err "If branches should be the same"
+  else err "If expects boolean condition"
+tcExp (Fn (k, t) b) g = do
+  let t' = toTy t
+  g' <- new
+  edge g' P g
+  sink g' V $ Var k t'
+  t'' <- tcExp b g'
+  return $ funT t' t''
+tcExp (App f a) g = do
+  f' <- tcExp f g
+  a' <- tcExp a g
+  case f' of
+    (T.Term "->" [from, to]) | from == a' -> return to
+    (T.Term "->" _) -> err "Application argument mismatch"
+    _ -> err "Application expects function"
+tcExp (LetRec (k, v) b) g = do
+  v' <- tcExp v g
+  g' <- new
+  edge g' P g
+  sink g' V $ Var k v'
+  tcExp b g'
+
+binop :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> LExp -> Ty -> Ty -> Sc -> Free f Ty
+binop l r input output g = do
+  l' <- tcExp l g
+  r' <- tcExp r g
+  if l' == input && r' == input then
+    return output
+  else
+    err "Binop type error"
 
 -- Function that handles each language construct
 tc :: ( Functor f
@@ -73,6 +138,28 @@ runTC e =
         $ flip (handle_ hEquals) Map.empty
         $ handle_ hExists
         (tc e 0
+        :: Free ( Exists Ty
+                + Equals Ty
+                + Scope Sc Label Decl
+                + Error String
+                + Nop )
+                Ty
+        ) 0
+  in case x of
+    Left err -> Left err
+    Right (Left (UnificationError t1 t2), _)  -> Left $ "Unification error: " ++ show t1 ++ " != " ++ show t2
+    Right (Right (t, u), sg)                  ->
+      let t' = explicate u t in
+        Right (t', sg)
+
+runTCExp :: LExp -> Either String (Ty, Graph Label Decl)
+runTCExp e =
+  let x = un
+        $ handle hErr
+        $ flip (handle_ hScope) emptyGraph
+        $ flip (handle_ hEquals) Map.empty
+        $ handle_ hExists
+        (tcExp e 0
         :: Free ( Exists Ty
                 + Equals Ty
                 + Scope Sc Label Decl
