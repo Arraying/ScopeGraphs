@@ -13,6 +13,7 @@ import Free.Logic.Exists
 import Free.Logic.Equals
 import Syntax
 import Modules
+import Data.List
 
 data Label
   = P -- Lexical parent.
@@ -48,6 +49,10 @@ sink = S.sink @_ @Label @Decl
 re :: RE Label
 re = Dot (Star $ Atom P) $ Atom V
 
+-- Regular expression P*M
+re' :: RE Label
+re' = Dot (Star $ Atom P) $ Atom M
+
 -- Path order based on length
 pShortest :: PathOrder Label Decl
 pShortest p1 p2 = lenRPath p1 < lenRPath p2
@@ -61,6 +66,7 @@ matchDecl x (Modl x' _) = x == x'
 -- Scope Graphs --
 ------------------
 
+-- Registers all the modules in the scope graph in a hierarchical fashion.
 constrHierarchy :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
 -- In the root level, we just take the root scope and add any information.
 constrHierarchy (Anon imports children decls) g = do
@@ -78,6 +84,71 @@ constrHierarchy (Named name imports children decls) g = do
   -- Return the annotated tree with the scope.
   return $ ANamed g' name imports children' decls
 
+-- Iteratively resolves imports until they either all resolve or they don't.
+constrImports :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f AnnotatedModTree
+constrImports m = do
+  -- Run the iterator.
+  res <- iterator m
+  -- All the imports that could not be imported.
+  let unimp = traceUnimported res
+  -- What do we need to do?
+  if null unimp then return res
+  else err $ "There are unresolved imports: " ++ intercalate ", " unimp
+  where
+    -- Helper that calls itself until no changes have been made.
+    iterator modl = do
+      (modl', v) <- constrImportIteration modl
+      if v then iterator modl' else return modl'
+
+-- A singular iteration/walkthrough of a tree of trying to resolve imports.
+constrImportIteration :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f (AnnotatedModTree, Bool)
+constrImportIteration (AAnon g imports children decls) = do
+  (imports', children', worked) <- constrImportIteration' g imports children
+  return (AAnon g imports' children' decls, worked)
+constrImportIteration (ANamed g name imports children decls) = do
+  (imports', children', worked) <- constrImportIteration' g imports children
+  return (ANamed g name imports' children' decls, worked)
+
+-- Shorthand to avoid code duplication.
+constrImportIteration' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> [LModule] -> [AnnotatedModTree] -> Free f ([LModule], [AnnotatedModTree], Bool)
+constrImportIteration' g imports children = do
+  -- Try to resolve the current imports.
+  (worked, imports') <- constrImportReduction g imports
+  -- Recursively go down the tree.
+  children' <- mapM constrImportIteration children
+  let worked' = any snd children'
+  return (imports', map fst children', worked || worked')
+
+-- Attempts to reduce imports as much as possible.
+constrImportReduction :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> [LModule] -> Free f (Bool, [LModule])
+constrImportReduction _ [] = return (False, [])
+constrImportReduction g (x:xs) = do
+  -- Recursively try to resolve the other imports.
+  -- Order technically matters, but since we assume that we will require multiple passes anyway, it is fine.
+  (otherChange, others) <- constrImportReduction g xs
+  -- Let's see what we have to query!
+  modl <- constrImportHop g $ createModuleHops x
+  case modl of
+    -- We have found the module, so we add the edge.
+    (Just g') -> do
+      -- Create the import edge.
+      edge g I g'
+      -- Signal that we have found it!
+      return (True, others)
+    -- We have not found the module, use rest.
+    Nothing -> return (otherChange, x : others)
+  where
+    constrImportHop g [] = return $ Just g
+    constrImportHop g (x:xs) = do
+      ds <- query g re' pShortest (matchDecl x)
+      case ds of
+        -- This usually indicates we will discover more modules later.
+        [] -> return Nothing
+        -- We found a single module, so this import has been resolved.
+        [Modl _ g'] -> constrImportHop g' xs
+        -- Here we want to actually error, because our program is ambiguous.
+        _ -> err $ "Ambigulous resolution of " ++ x ++ "!"
+
 ------------------
 -- Type Checker --
 ------------------
@@ -88,7 +159,7 @@ tcExp Tru _ = return boolT
 tcExp Fls _ = return boolT
 tcExp (Syntax.Id ident) g = do
   ds <- getQuery ident <&> map projTy
-  case ds of 
+  case ds of
     []  -> err "No matching declarations found"
     [t] -> return t
     _   -> err "BUG: Multiple declarations found" -- cannot happen for STLC
@@ -146,6 +217,11 @@ tc :: ( Functor f
    => LProg -> Sc -> Free f Ty
 tc _ _ = undefined
 
+-- Typechecks the module system.
+tcMod :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
+tcMod modl g = do
+  annotated <- constrHierarchy modl g
+  constrImports annotated
 
 -- Tie it all together
 runTC :: LProg -> Either String (Ty, Graph Label Decl)
@@ -195,7 +271,7 @@ runTCExp e =
 
 -- For debugging.
 runTCMod :: ModTree -> Either String (Graph Label Decl)
-runTCMod t = fmap snd 
+runTCMod t = fmap snd
         $ un
         $ handle hErr
-        $ handle_ hScope (constrHierarchy t 0) emptyGraph
+        $ handle_ hScope (tcMod t 0) emptyGraph
