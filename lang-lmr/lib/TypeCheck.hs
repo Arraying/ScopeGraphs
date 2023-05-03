@@ -5,7 +5,7 @@ import qualified Data.Map as Map
 import Data.Regex
 import qualified Data.Term as T
 
-import Free
+import Free hiding (R)
 import Free.Scope hiding (edge, new, sink)
 import qualified Free.Scope as S (edge, new, sink)
 import Free.Error
@@ -18,6 +18,7 @@ import Debug.Trace
 
 data Label
   = P -- Lexical parent.
+  | R -- Resolution edge.
   | I -- Import.
   | M -- Module.
   | V -- Variable.
@@ -68,6 +69,12 @@ reTransientAccessible = Dot (Star $ Atom I) $ Atom M
 -- reTransientAccessible :: RE Label
 -- reTransientAccessible = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom $ I "Test")) $ Atom M
 
+-- Queries required to build resolution edges.
+reResolution1 :: RE Label
+reResolution1 = Dot (Star $ Atom P) $ Atom M
+reResolution2 :: RE Label
+reResolution2 = Atom M
+
 -- Path order based on length
 pShortest :: PathOrder Label Decl
 pShortest p1 p2 = lenRPath p1 < lenRPath p2
@@ -99,72 +106,32 @@ constrHierarchy (Named name imports children decls) g = do
   -- Return the annotated tree with the scope.
   return $ ANamed g' name imports children' decls
 
--- Iteratively resolves imports until they either all resolve or they don't.
-constrImports :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f AnnotatedModTree
-constrImports m = do
-  -- Run the iterator.
-  res <- iterator m
-  -- All the imports that could not be imported.
-  let unimp = traceUnimported res
-  -- What do we need to do?
-  if null unimp then return res
-  else err $ "There are unresolved imports: " ++ intercalate ", " unimp
-  where
-    -- Helper that iteratively tries to resolve the imports.
-    iterator modl = do
-      (modl', _) <- trace "Performed parent iteration" $ constrImportIteration reDirectlyAccessible modl
-      (modl'', _) <- trace "Performed transient iteration" $ constrImportIteration reTransientAccessible modl'
-      return modl''
-      
+constrResolutionEdges :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f ()
+constrResolutionEdges (AAnon g _ children _) = mapM_ (constrResolutionEdges' g) children
+constrResolutionEdges (ANamed g _ _ children _) = mapM_ (constrResolutionEdges' g) children
 
--- A singular iteration/walkthrough of a tree of trying to resolve imports.
-constrImportIteration :: (Functor f, Error String < f, Scope Sc Label Decl < f) => RE Label -> AnnotatedModTree -> Free f (AnnotatedModTree, Bool)
-constrImportIteration r (AAnon g imports children decls) = do
-  (imports', children', worked) <- constrImportIteration' g r imports children
-  return (AAnon g imports' children' decls, worked)
-constrImportIteration r (ANamed g name imports children decls) = do
-  (imports', children', worked) <- constrImportIteration' g r imports children
-  return (ANamed g name imports' children' decls, worked)
+constrResolutionEdges' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> AnnotatedModTree -> Free f ()
+constrResolutionEdges' g (AAnon g' _ children _) = undefined
+constrResolutionEdges' g (ANamed g' _ _ children _) = undefined
+  
 
--- Shorthand to avoid code duplication.
-constrImportIteration' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> RE Label -> [LModule] -> [AnnotatedModTree] -> Free f ([LModule], [AnnotatedModTree], Bool)
-constrImportIteration' g r imports children = do
-  -- Try to resolve the current imports.
-  (worked, imports') <- constrImportReduction g r imports
-  -- Recursively go down the tree.
-  children' <- mapM (constrImportIteration r) children
-  let worked' = any snd children'
-  return (imports', map fst children', worked || worked')
+-- -- Constructs resolution edges.
+-- constrResolutionEdges :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f ()
+-- constrResolutionEdges (AAnon _ _ children _) = mapM_ constrResolutionEdges children -- Do not consider root node.
+-- constrResolutionEdges (ANamed g _ _ children _) = do
+--   trace "BEFORE RESOLUTION" $ constrResolutionEdges' g
+--   trace "AFTER RESOLUTION" $ mapM_ constrResolutionEdges children
 
--- Attempts to reduce imports as much as possible.
-constrImportReduction :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> RE Label -> [LModule] -> Free f (Bool, [LModule])
-constrImportReduction _ _ [] = return (False, [])
-constrImportReduction g r (x:xs) = do
-  -- Recursively try to resolve the other imports.
-  -- Order technically matters, but since we assume that we will require multiple passes anyway, it is fine.
-  (otherChange, others) <- constrImportReduction g r xs
-  -- Let's see what we have to query!
-  modl <- constrImportHop g $ createModuleHops x
-  case modl of
-    -- We have found the module, so we add the edge.
-    (Just g') -> do
-      -- Create the import edge.
-      edge g I g'
-      -- Signal that we have found it!
-      return $ trace ("Resolved import " ++ show x ++ " to " ++ show g') $ (True, others)
-    -- We have not found the module, use rest.
-    Nothing -> return (otherChange, x : others)
-  where
-    constrImportHop g [] = return $ Just g
-    constrImportHop g (x:xs) = do
-      ds <- trace ("  Querying for " ++ show x) $ query g r pShortest (matchDecl x)
-      case ds of
-        -- This usually indicates we will discover more modules later.
-        [] -> trace "    Found nothing" $ return Nothing
-        -- We found a single module, so this import has been resolved.
-        [Modl _ g'] -> trace "    Found something" $ constrImportHop g' xs
-        -- Here we want to actually error, because our program is ambiguous.
-        _ -> err $ "Ambigulous resolution of " ++ x ++ "!"
+-- constrResolutionEdges' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> Free f ()
+-- constrResolutionEdges' g = do
+--   -- Any module that is declared directly in the parent is considered.
+--   -- We do not care about the name.
+--   ps <- trace ("GETTING PARENT OF " ++ show g) $ query g reResolution1 pShortest $ const True
+--   let p = trace ("THE PARENT OF " ++ show g ++ " IS " ++ show ds) ds
+--   return ()
+--   where
+--     queryParent (Modl _ )
+
 
 ------------------
 -- Type Checker --
@@ -238,7 +205,8 @@ tc _ _ = undefined
 tcMod :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
 tcMod modl g = do
   annotated <- constrHierarchy modl g
-  constrImports annotated
+  constrResolutionEdges annotated
+  return annotated
 
 -- Tie it all together
 runTC :: LProg -> Either String (Ty, Graph Label Decl)

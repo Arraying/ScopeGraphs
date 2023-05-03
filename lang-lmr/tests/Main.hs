@@ -107,7 +107,7 @@ testP19 :: IO ()
 testP19 = runParseTest "./aterm-res/lmr/modules/two-level-qual-ref.aterm"
 
 testM1 :: IO ()
-testM1 = runModuleTest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" True
+testM1 = runModuleTest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" False
 
 runModuleTest :: String -> Bool -> IO ()
 runModuleTest s v = do
