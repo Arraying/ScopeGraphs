@@ -54,6 +54,20 @@ re = Dot (Star $ Atom P) $ Atom V
 re' :: RE Label
 re' = Dot (Star $ Pipe (Atom P) (Atom I)) $ Atom M
 
+-- Directly accessible modules, so modules that can be accessed through parents.
+reDirectlyAccessible :: RE Label
+reDirectlyAccessible = Dot (Star $ Atom P) $ Atom M
+
+-- Transiently accessible modules, so modules that can be accessed through already imported modules.
+reTransientAccessible :: RE Label
+reTransientAccessible = Dot (Star $ Atom I) $ Atom M
+
+-- -- P*I?M
+-- reDirectlyAccessible :: RE Label
+-- reDirectlyAccessible = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom $ I "Test")) $ Atom M
+-- reTransientAccessible :: RE Label
+-- reTransientAccessible = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom $ I "Test")) $ Atom M
+
 -- Path order based on length
 pShortest :: PathOrder Label Decl
 pShortest p1 p2 = lenRPath p1 < lenRPath p2
@@ -96,57 +110,59 @@ constrImports m = do
   if null unimp then return res
   else err $ "There are unresolved imports: " ++ intercalate ", " unimp
   where
-    -- Helper that calls itself until no changes have been made.
+    -- Helper that iteratively tries to resolve the imports.
     iterator modl = do
-      (modl', v) <- trace "!!!! PERFORMED ITERATION !!!!" $  constrImportIteration modl
-      if v then iterator modl' else return modl'
+      (modl', _) <- trace "Performed parent iteration" $ constrImportIteration reDirectlyAccessible modl
+      (modl'', _) <- trace "Performed transient iteration" $ constrImportIteration reTransientAccessible modl'
+      return modl''
+      
 
 -- A singular iteration/walkthrough of a tree of trying to resolve imports.
-constrImportIteration :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f (AnnotatedModTree, Bool)
-constrImportIteration (AAnon g imports children decls) = do
-  (imports', children', worked) <- constrImportIteration' g imports children
+constrImportIteration :: (Functor f, Error String < f, Scope Sc Label Decl < f) => RE Label -> AnnotatedModTree -> Free f (AnnotatedModTree, Bool)
+constrImportIteration r (AAnon g imports children decls) = do
+  (imports', children', worked) <- constrImportIteration' g r imports children
   return (AAnon g imports' children' decls, worked)
-constrImportIteration (ANamed g name imports children decls) = do
-  (imports', children', worked) <- constrImportIteration' g imports children
+constrImportIteration r (ANamed g name imports children decls) = do
+  (imports', children', worked) <- constrImportIteration' g r imports children
   return (ANamed g name imports' children' decls, worked)
 
 -- Shorthand to avoid code duplication.
-constrImportIteration' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> [LModule] -> [AnnotatedModTree] -> Free f ([LModule], [AnnotatedModTree], Bool)
-constrImportIteration' g imports children = do
+constrImportIteration' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> RE Label -> [LModule] -> [AnnotatedModTree] -> Free f ([LModule], [AnnotatedModTree], Bool)
+constrImportIteration' g r imports children = do
   -- Try to resolve the current imports.
-  (worked, imports') <- constrImportReduction g imports
+  (worked, imports') <- constrImportReduction g r imports
   -- Recursively go down the tree.
-  children' <- mapM constrImportIteration children
+  children' <- mapM (constrImportIteration r) children
   let worked' = any snd children'
   return (imports', map fst children', worked || worked')
 
 -- Attempts to reduce imports as much as possible.
-constrImportReduction :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> [LModule] -> Free f (Bool, [LModule])
-constrImportReduction _ [] = return (False, [])
-constrImportReduction g (x:xs) = do
+constrImportReduction :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> RE Label -> [LModule] -> Free f (Bool, [LModule])
+constrImportReduction _ _ [] = return (False, [])
+constrImportReduction g r (x:xs) = do
   -- Recursively try to resolve the other imports.
   -- Order technically matters, but since we assume that we will require multiple passes anyway, it is fine.
-  (otherChange, others) <- constrImportReduction g xs
+  (otherChange, others) <- constrImportReduction g r xs
   -- Let's see what we have to query!
   modl <- constrImportHop g $ createModuleHops x
   case modl of
     -- We have found the module, so we add the edge.
     (Just g') -> do
       -- Create the import edge.
-      trace ("Resolved import " ++ show x ++ " to " ++ show g') $ edge g I g'
+      edge g I g'
       -- Signal that we have found it!
-      return (True, others)
+      return $ trace ("Resolved import " ++ show x ++ " to " ++ show g') $ (True, others)
     -- We have not found the module, use rest.
     Nothing -> return (otherChange, x : others)
   where
     constrImportHop g [] = return $ Just g
     constrImportHop g (x:xs) = do
-      ds <- query g re' pShortest (matchDecl x)
+      ds <- trace ("  Querying for " ++ show x) $ query g r pShortest (matchDecl x)
       case ds of
         -- This usually indicates we will discover more modules later.
-        [] -> return Nothing
+        [] -> trace "    Found nothing" $ return Nothing
         -- We found a single module, so this import has been resolved.
-        [Modl _ g'] -> constrImportHop g' xs
+        [Modl _ g'] -> trace "    Found something" $ constrImportHop g' xs
         -- Here we want to actually error, because our program is ambiguous.
         _ -> err $ "Ambigulous resolution of " ++ x ++ "!"
 
