@@ -106,32 +106,29 @@ constrHierarchy (Named name imports children decls) g = do
   -- Return the annotated tree with the scope.
   return $ ANamed g' name imports children' decls
 
-constrResolutionEdges :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f ()
-constrResolutionEdges (AAnon g _ children _) = mapM_ (constrResolutionEdges' g) children
-constrResolutionEdges (ANamed g _ _ children _) = mapM_ (constrResolutionEdges' g) children
+constrResolutionEdges :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Maybe Sc -> AnnotatedModTree -> Free f ()
+constrResolutionEdges m (AAnon g _ children _) = do
+  constrResolutionEdgesParent m g
+  constrResolutionEdgesChildren children
+  mapM_ (constrResolutionEdges (Just g)) children
+constrResolutionEdges m (ANamed g _ _ children _) = do
+  constrResolutionEdgesParent m g
+  constrResolutionEdgesChildren children
+  mapM_ (constrResolutionEdges (Just g)) children
 
-constrResolutionEdges' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> AnnotatedModTree -> Free f ()
-constrResolutionEdges' g (AAnon g' _ children _) = undefined
-constrResolutionEdges' g (ANamed g' _ _ children _) = undefined
-  
+constrResolutionEdgesParent :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Maybe Sc -> Sc -> Free f ()
+constrResolutionEdgesParent Nothing _ = return ()
+constrResolutionEdgesParent (Just g) g' = edge g R g'
 
--- -- Constructs resolution edges.
--- constrResolutionEdges :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f ()
--- constrResolutionEdges (AAnon _ _ children _) = mapM_ constrResolutionEdges children -- Do not consider root node.
--- constrResolutionEdges (ANamed g _ _ children _) = do
---   trace "BEFORE RESOLUTION" $ constrResolutionEdges' g
---   trace "AFTER RESOLUTION" $ mapM_ constrResolutionEdges children
-
--- constrResolutionEdges' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> Free f ()
--- constrResolutionEdges' g = do
---   -- Any module that is declared directly in the parent is considered.
---   -- We do not care about the name.
---   ps <- trace ("GETTING PARENT OF " ++ show g) $ query g reResolution1 pShortest $ const True
---   let p = trace ("THE PARENT OF " ++ show g ++ " IS " ++ show ds) ds
---   return ()
---   where
---     queryParent (Modl _ )
-
+constrResolutionEdgesChildren :: (Functor f, Error String < f, Scope Sc Label Decl < f) => [AnnotatedModTree] -> Free f ()
+constrResolutionEdgesChildren ls = do
+  let ids = map extractId ls
+  let combos = trace ("Ids are " ++ show ids) $ [ (x, y) | x <- ids , y <- ids, x /= y ]
+  trace ("Combis are " ++ show combos) $ mapM_ pairUp combos
+  where
+    pairUp (g, g') = edge g R g'
+    extractId (AAnon g _ _ _) = g
+    extractId (ANamed g _ _ _ _) = g
 
 ------------------
 -- Type Checker --
@@ -205,7 +202,7 @@ tc _ _ = undefined
 tcMod :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
 tcMod modl g = do
   annotated <- constrHierarchy modl g
-  constrResolutionEdges annotated
+  constrResolutionEdges Nothing annotated
   return annotated
 
 -- Tie it all together
