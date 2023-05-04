@@ -99,15 +99,14 @@ resImports (ANamed g _ i children _) m = do
 
 resImport :: (Functor f, Error String < f, Scope Sc Label Decl < f) => (Sc, [LModule]) -> [ModSummary] -> Free f ()
 resImport (g, rawImports) m = do
-  -- For now focus on single imports.
-  let importSingle = trace ("SINGULAR IMPORT OF " ++ show g ++ " WITH " ++ show rawImports)  $ map (head . createModuleHops) rawImports
   -- Get the correct order going.
-  let imports = filter (`elem` importSingle) $ map fst m
+  let imports = sortModules (map fst m) rawImports
   -- Run the algorithm.
   algorithm imports [g]
   where
+    algorithm :: (Functor f, Error String < f, Scope Sc Label Decl < f) => [LModule] -> [Sc] -> Free f ()
     algorithm [] _ = return ()
-    algorithm xs@(_:_) [] = err $ "Could not resolve imports " ++ intercalate ", " xs
+    algorithm xs@(_:_) [] = err $ "Could not resolve imports " ++ intercalate ", " (map show xs)
     algorithm importsLeft (f:fs) = do
       found <- trace ("LEFT " ++ show importsLeft ++ " FRONTIER " ++ show (f:fs)) $ mapM (`algorithm'` f) importsLeft
       -- Flatten.
@@ -118,13 +117,25 @@ resImport (g, rawImports) m = do
       let importsLeft' = importsLeft \\ map fst found'
       -- Now recursively call it again.
       algorithm importsLeft' $ fs ++ map snd found'
+    algorithm' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> Free f (Maybe (LModule, Sc))
     algorithm' imp from = do
       -- We try to query the particular import via P*M.
-      res <- trace ("TRYING TO RESOLVE " ++ imp) query from re'' pShortest $ matchDecl imp
+      res <- trace ("HOP RESOLVING " ++ show imp) hop from imp
+      case res of
+        Just g' -> return $ Just (imp, g')
+        Nothing -> return Nothing
+    hop from (LMLiteral s) = singularResolve from s
+    hop from (LMNested s s') = do
+      recursive <- hop from s
+      case recursive of
+        Nothing -> return Nothing
+        Just x -> singularResolve x s'
+    singularResolve from to = do
+      res <- trace ("TRYING TO RESOLVE " ++ to) query from re'' pShortest $ matchDecl to
       case trace ("RES IS " ++ show res) res of
         [] -> return Nothing
-        [Modl name g'] -> return $ Just (name, g')
-        _ -> err $ "Found multiple ocurrences of " ++ imp
+        [Modl _ g'] -> return $ Just g'
+        _ -> err $ "Found multiple ocurrences of " ++ to
 
 ------------------
 -- Type Checker --

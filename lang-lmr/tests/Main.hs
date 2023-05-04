@@ -47,7 +47,7 @@ parser = TestList []
 
 modules :: Test
 modules = TestList
-  [ "aaa" ~: testM1 ]
+  [ "aaa" ~: testM2 ]
 
 testP1 :: IO ()
 testP1 = runParseTest "./aterm-res/lmr/empty.aterm"
@@ -110,7 +110,7 @@ testM1 :: IO ()
 testM1 = runModuleTest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" True
 
 testM2 :: IO ()
-testM2 = runModuleTest "./aterm-res/lmr/modules/import-outer-inner.aterm" True
+testM2 = runModuleTest "./aterm-res/lmr/modules/import-outer-inner.aterm" False
 
 testM3 :: IO ()
 testM3 = runModuleTest "./aterm-res/lmr/modules/import-outer-then-inner.aterm" True

@@ -3,6 +3,7 @@ module Modules where
 import Syntax
 import Free.Scope
 import Data.List
+import Data.Maybe
 
 data ModTree
   = Anon [LModule] [ModTree] [LDecl]
@@ -38,6 +39,15 @@ isEverythingImported (ANamed _ _ imports children _) = null imports && all isEve
 traceUnimported :: AnnotatedModTree -> [String]
 traceUnimported (AAnon _ imports children _) = map (pr Nothing) imports ++ concatMap traceUnimported children
 traceUnimported (ANamed _ n imports children _) = map (pr $ Just n) imports ++ concatMap traceUnimported children
+
+moduleHead :: LModule -> String
+moduleHead (LMLiteral s) = s
+moduleHead (LMNested s _) = moduleHead s
+
+sortModules :: [String] -> [LModule] -> [LModule]
+sortModules ms = sortBy sorter
+  where
+    sorter l r = compare (fromMaybe (-1) $ elemIndex (moduleHead l) ms) (fromMaybe (-1) $ elemIndex (moduleHead r) ms)
 
 pr :: Maybe String -> LModule -> String
 pr q s = par q ++ intercalate "." (createModuleHops s)
