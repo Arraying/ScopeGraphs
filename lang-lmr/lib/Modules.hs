@@ -15,9 +15,17 @@ data AnnotatedModTree
   deriving (Eq, Show)
 
 type ModWrapped = (String, [LDecl])
+type ModSummary = (String, Sc)
 
 createModuleTree :: LProg -> ModTree
 createModuleTree xs = let (is, ms, ls) = extract xs in Anon is (map traverseModule ms) ls
+
+createModuleOrdering :: AnnotatedModTree -> [ModSummary]
+createModuleOrdering a = bfs [a]
+  where
+    bfs [] = []
+    bfs ((AAnon _ _ children _):xs) = bfs $ xs ++ children
+    bfs ((ANamed g n _ children _):xs) = (:) (n, g) $ bfs $ xs ++ children
 
 createModuleHops :: LModule -> [String]
 createModuleHops (LMLiteral s) = [s]

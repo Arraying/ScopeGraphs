@@ -15,10 +15,10 @@ import Syntax
 import Modules
 import Data.List
 import Debug.Trace
+import Data.Maybe (catMaybes)
 
 data Label
   = P -- Lexical parent.
-  | R -- Resolution edge.
   | I -- Import.
   | M -- Module.
   | V -- Variable.
@@ -55,25 +55,8 @@ re = Dot (Star $ Atom P) $ Atom V
 re' :: RE Label
 re' = Dot (Star $ Pipe (Atom P) (Atom I)) $ Atom M
 
--- Directly accessible modules, so modules that can be accessed through parents.
-reDirectlyAccessible :: RE Label
-reDirectlyAccessible = Dot (Star $ Atom P) $ Atom M
-
--- Transiently accessible modules, so modules that can be accessed through already imported modules.
-reTransientAccessible :: RE Label
-reTransientAccessible = Dot (Star $ Atom I) $ Atom M
-
--- -- P*I?M
--- reDirectlyAccessible :: RE Label
--- reDirectlyAccessible = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom $ I "Test")) $ Atom M
--- reTransientAccessible :: RE Label
--- reTransientAccessible = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom $ I "Test")) $ Atom M
-
--- Queries required to build resolution edges.
-reResolution1 :: RE Label
-reResolution1 = Dot (Star $ Atom P) $ Atom M
-reResolution2 :: RE Label
-reResolution2 = Atom M
+re'' :: RE Label
+re'' = Dot (Star $ Atom P) $ Atom M
 
 -- Path order based on length
 pShortest :: PathOrder Label Decl
@@ -106,29 +89,42 @@ constrHierarchy (Named name imports children decls) g = do
   -- Return the annotated tree with the scope.
   return $ ANamed g' name imports children' decls
 
-constrResolutionEdges :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Maybe Sc -> AnnotatedModTree -> Free f ()
-constrResolutionEdges m (AAnon g _ children _) = do
-  constrResolutionEdgesParent m g
-  constrResolutionEdgesChildren children
-  mapM_ (constrResolutionEdges (Just g)) children
-constrResolutionEdges m (ANamed g _ _ children _) = do
-  constrResolutionEdgesParent m g
-  constrResolutionEdgesChildren children
-  mapM_ (constrResolutionEdges (Just g)) children
+resImports :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> [ModSummary] -> Free f ()
+resImports (AAnon g i children _) m = do
+  trace "DOING IMPORTS FOR ANONYMOUS" $ resImport (g, i) m
+  mapM_ (`resImports` m) children
+resImports (ANamed g _ i children _) m = do
+  resImport (g, i) m
+  mapM_ (`resImports` m) children
 
-constrResolutionEdgesParent :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Maybe Sc -> Sc -> Free f ()
-constrResolutionEdgesParent Nothing _ = return ()
-constrResolutionEdgesParent (Just g) g' = edge g R g'
-
-constrResolutionEdgesChildren :: (Functor f, Error String < f, Scope Sc Label Decl < f) => [AnnotatedModTree] -> Free f ()
-constrResolutionEdgesChildren ls = do
-  let ids = map extractId ls
-  let combos = trace ("Ids are " ++ show ids) $ [ (x, y) | x <- ids , y <- ids, x /= y ]
-  trace ("Combis are " ++ show combos) $ mapM_ pairUp combos
+resImport :: (Functor f, Error String < f, Scope Sc Label Decl < f) => (Sc, [LModule]) -> [ModSummary] -> Free f ()
+resImport (g, rawImports) m = do
+  -- For now focus on single imports.
+  let importSingle = trace ("SINGULAR IMPORT OF " ++ show g ++ " WITH " ++ show rawImports)  $ map (head . createModuleHops) rawImports
+  -- Get the correct order going.
+  let imports = filter (`elem` importSingle) $ map fst m
+  -- Run the algorithm.
+  algorithm imports [g]
   where
-    pairUp (g, g') = edge g R g'
-    extractId (AAnon g _ _ _) = g
-    extractId (ANamed g _ _ _ _) = g
+    algorithm [] _ = return ()
+    algorithm xs@(_:_) [] = err $ "Could not resolve imports " ++ intercalate ", " xs
+    algorithm importsLeft (f:fs) = do
+      found <- trace ("LEFT " ++ show importsLeft ++ " FRONTIER " ++ show (f:fs)) $ mapM (`algorithm'` f) importsLeft
+      -- Flatten.
+      let found' = catMaybes found
+      -- Now we draw all the edges.
+      trace ("ALGORITHM RESPONSE IS " ++ show found) $ mapM_ (edge g I . snd) found'
+      -- Update imports.
+      let importsLeft' = importsLeft \\ map fst found'
+      -- Now recursively call it again.
+      algorithm importsLeft' $ fs ++ map snd found'
+    algorithm' imp from = do
+      -- We try to query the particular import via P*M.
+      res <- trace ("TRYING TO RESOLVE " ++ imp) query from re'' pShortest $ matchDecl imp
+      case trace ("RES IS " ++ show res) res of
+        [] -> return Nothing
+        [Modl name g'] -> return $ Just (name, g')
+        _ -> err $ "Found multiple ocurrences of " ++ imp
 
 ------------------
 -- Type Checker --
@@ -202,7 +198,7 @@ tc _ _ = undefined
 tcMod :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
 tcMod modl g = do
   annotated <- constrHierarchy modl g
-  constrResolutionEdges Nothing annotated
+  resImports annotated $ createModuleOrdering annotated
   return annotated
 
 -- Tie it all together

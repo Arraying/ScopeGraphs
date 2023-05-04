@@ -107,7 +107,37 @@ testP19 :: IO ()
 testP19 = runParseTest "./aterm-res/lmr/modules/two-level-qual-ref.aterm"
 
 testM1 :: IO ()
-testM1 = runModuleTest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" False
+testM1 = runModuleTest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" True
+
+testM2 :: IO ()
+testM2 = runModuleTest "./aterm-res/lmr/modules/import-outer-inner.aterm" True
+
+testM3 :: IO ()
+testM3 = runModuleTest "./aterm-res/lmr/modules/import-outer-then-inner.aterm" True
+
+testM4 :: IO ()
+testM4 = runModuleTest "./aterm-res/lmr/modules/import-shadowing.aterm" False
+
+testM5 :: IO ()
+testM5 = runModuleTest "./aterm-res/lmr/modules/import-sibling.aterm" True
+
+testM6 :: IO ()
+testM6 = runModuleTest "./aterm-res/lmr/modules/inner-invisible-in-outer.no.aterm" False
+
+testM7 :: IO ()
+testM7 = runModuleTest "./aterm-res/lmr/modules/inner-shadows-outer.aterm" True
+
+testM8 :: IO ()
+testM8 = runModuleTest "./aterm-res/lmr/modules/outer-visible-in-inner.aterm" True
+
+testM9 :: IO ()
+testM9 = runModuleTest "./aterm-res/lmr/modules/qual-ref-to-inner.aterm" True
+
+testM10 :: IO ()
+testM10 = runModuleTest "./aterm-res/lmr/modules/qual-ref.aterm" True
+
+testM11 :: IO ()
+testM11 = runModuleTest "./aterm-res/lmr/modules/two-level-qual-ref.aterm" True
 
 runModuleTest :: String -> Bool -> IO ()
 runModuleTest s v = do
