@@ -10,9 +10,6 @@ import Free.Scope (Graph)
 import Syntax
 import Modules
 
-runTCTest :: LProg -> IO (Ty, Graph Label Decl)
-runTCTest = either assertFailure return . runTC
-
 -- Define your test cases like the following
 testApplicationPlus :: IO ()
 testApplicationPlus = do
@@ -21,6 +18,7 @@ testApplicationPlus = do
 tests :: Test
 tests = TestList
   [ "Parsing tests" ~: parser
+  , "Basis tests" ~: basis 
   , "Modules tests" ~: modules ]
 
 parser :: Test
@@ -45,9 +43,12 @@ parser = TestList []
   -- , "./aterm-res/lmr/modules/qual-ref.aterm" ~: testP18
   -- , "./aterm-res/lmr/modules/two-level-qual-ref.aterm" ~: testP19 ]
 
+basis :: Test
+basis = TestList
+  [ "test" ~: testB1 ]
+
 modules :: Test
-modules = TestList
-  [ "aaa" ~: testM2 ]
+modules = TestList []
 
 testP1 :: IO ()
 testP1 = runParseTest "./aterm-res/lmr/empty.aterm"
@@ -106,6 +107,30 @@ testP18 = runParseTest "./aterm-res/lmr/modules/qual-ref.aterm"
 testP19 :: IO ()
 testP19 = runParseTest "./aterm-res/lmr/modules/two-level-qual-ref.aterm"
 
+testB1 :: IO ()
+testB1 = runBasisTest "./aterm-res/lmr/definitions/missing-def.no.aterm" False
+
+testB2 :: IO ()
+testB2 = runBasisTest "./aterm-res/lmr/definitions/param-shadows-def.aterm" True
+
+testB3 :: IO ()
+testB3 = runBasisTest "./aterm-res/lmr/definitions/param-shadows-def.no.aterm" False
+
+testB4 :: IO ()
+testB4 = runBasisTest "./aterm-res/lmr/definitions/rec-defs.aterm" False
+
+testB5 :: IO ()
+testB5 = runBasisTest "./aterm-res/lmr/definitions/rec-function-def.aterm" True
+
+testB6 :: IO ()
+testB6 = runBasisTest "./aterm-res/lmr/definitions/rec-function-letrec.aterm" True
+
+testB7 :: IO ()
+testB7 = runBasisTest "./aterm-res/lmr/definitions/seq-defs.aterm" True
+
+testB8 :: IO ()
+testB8 = runBasisTest "./aterm-res/lmr/definitions/type-mismatch.no.aterm" False
+
 testM1 :: IO ()
 testM1 = runModuleTest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" True
 
@@ -139,20 +164,34 @@ testM10 = runModuleTest "./aterm-res/lmr/modules/qual-ref.aterm" True
 testM11 :: IO ()
 testM11 = runModuleTest "./aterm-res/lmr/modules/two-level-qual-ref.aterm" True
 
+runParseTest :: String -> IO ()
+runParseTest s = do
+  p <- parse s
+  print p
+  assertEqual "It parses" (isRight p) True
+
+runBasisTest :: String -> Bool -> IO ()
+runBasisTest s v = do
+  p <- parse s
+  case p of
+    Left _ -> assertFailure "Failed to parse"
+    Right p -> let res = runTC p in do
+      seq res print "aaa?"
+      _ <- print' res
+      assertEqual "Correct typing behaviour" v (isRight res)
+
 runModuleTest :: String -> Bool -> IO ()
 runModuleTest s v = do
   p <- parse s
   case p of 
     Left _ -> assertFailure "Failed to parse"
     Right m -> let res = (runTCMod $ createModuleTree m) in do
-      print res
-      assertEqual "Module works" (isRight res) v
+      print' res
+      assertEqual "Module works" v (isRight res)
 
-runParseTest :: String -> IO ()
-runParseTest s = do
-  p <- parse s
-  print p
-  assertEqual "It parses" (isRight p) True
+print' :: Either String (Graph Label Decl) -> IO ()
+print' (Right g) = print g
+print' (Left e) = print e
 
 main :: IO ()
 main = do

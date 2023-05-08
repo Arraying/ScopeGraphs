@@ -32,7 +32,7 @@ type LProg = [LDecl]
 data LDecl
   = LMod String [LDecl]
   | LImport LModule
-  | LDef (String, LExp)
+  | LDef String LExp
   -- | Record String [LFDecl] We do not care about records for the time being.
   deriving (Eq, Show)
 data LModule

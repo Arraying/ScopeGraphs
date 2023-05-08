@@ -24,8 +24,8 @@ parseDecl (AFunc "Import" [n]) = do
   n' <- parseMod n
   return $ LImport n'
 parseDecl (AFunc "Def" (b:_)) = do
-  bs' <- parseBind b
-  return $ LDef bs'
+  (p, q) <- parseBind b
+  return $ LDef p q
   where
     parseBind (AFunc "DefBind" [AStr n, e]) = do
       e' <- parseExp e

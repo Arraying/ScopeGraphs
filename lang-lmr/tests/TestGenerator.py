@@ -18,6 +18,18 @@ print()
 
 i = 1
 tests = []
+for root, dirs, files in os.walk('./aterm-res/lmr/definitions/'):
+    for name in files:
+        goal = root + name
+        positive = '.no.' not in name
+        print(f"testB{i} :: IO ()\ntestB{i} = runBasisTest \"{goal}\" {positive} \n")
+        tests.append(f"\"{goal}\" ~: testB{i}")
+        i += 1
+printTests(tests)
+print()
+
+i = 1
+tests = []
 for root, dirs, files in os.walk('./aterm-res/lmr/modules/'):
     for name in files:
         goal = root + name

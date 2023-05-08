@@ -101,7 +101,7 @@ constrDecls' g children decls = do
   rest <- concat <$> mapM constrDecls children
   return $ curr ++ rest
   where
-    make g (LDef (s, e)) = do
+    make g (LDef s e) = do
       t <- exists
       sink g V $ Var s t
       return $ Just (g, t, e)
@@ -186,7 +186,25 @@ tc (If c i f) g t = do
   tc f g f'
   equals i' f'
   equals t i'
-tc _ _ _ = err "Currently unsuppoted operator"
+tc (Fn (p, pt) b) g t = do
+  let paramType = toTy pt
+  t' <- exists
+  g' <- new
+  edge g' P g
+  sink g' V (Var p paramType)
+  tc b g' t'
+  equals t (funT paramType t')
+tc (App fn a) g t = do
+  argType <- exists
+  tc fn g (funT argType t)
+  tc a g argType
+tc (LetRec (v, e) b) g t = do
+  t' <- exists
+  tc e g t'
+  g' <- new
+  edge g' P g
+  sink g' V (Var v t')
+  tc b g' t
 
 tcBinop :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> LExp -> Ty -> Ty -> Sc -> Ty -> Free f ()
 tcBinop l r wantInput wantOutput g t = do
@@ -204,8 +222,8 @@ tcMod modl g = do
 tcAll :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LProg -> Sc -> Free f ()
 tcAll e g = do
   annotatedModTree <- tcMod (createModuleTree e) g
-  decls <- constrDecls annotatedModTree
-  mapM_ (\(g, t, e) -> tc e g t) decls
+  decls <- trace "CONSTRUCTING DECLS" $ constrDecls annotatedModTree
+  mapM_ (\(g, t, e) -> tc e g t) $ trace "TYPE CHECKING DECLS NOW" decls
 
 -- Tie it all together
 runTC :: LProg -> Either String (Graph Label Decl)
