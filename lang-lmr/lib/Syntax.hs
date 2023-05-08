@@ -65,8 +65,12 @@ data LExp -- Do not prefix for brevity.
 data LIdent
   = LILiteral String
   | LINested LModule String
-  deriving (Eq, Show)
+  deriving (Eq)
 data LFBind = LFBind String LExp deriving (Eq, Show)
+
+instance Show LIdent where
+  show (LILiteral s) = s
+  show (LINested n s) = show n ++ "." ++ s
 
 toTy :: LType -> Ty
 toTy LInt = numT

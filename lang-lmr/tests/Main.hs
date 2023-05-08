@@ -18,7 +18,7 @@ testApplicationPlus = do
 tests :: Test
 tests = TestList
   [ "Parsing tests" ~: parser
-  , "Basis tests" ~: basis 
+  , "Basis tests" ~: basis
   , "Modules tests" ~: modules ]
 
 parser :: Test
@@ -45,7 +45,7 @@ parser = TestList []
 
 basis :: Test
 basis = TestList
-  [ "test" ~: testB1 ]
+  [ "test" ~: testB8 ]
 
 modules :: Test
 modules = TestList []
@@ -117,7 +117,7 @@ testB3 :: IO ()
 testB3 = runBasisTest "./aterm-res/lmr/definitions/param-shadows-def.no.aterm" False
 
 testB4 :: IO ()
-testB4 = runBasisTest "./aterm-res/lmr/definitions/rec-defs.aterm" False
+testB4 = runBasisTest "./aterm-res/lmr/definitions/rec-defs.aterm" True
 
 testB5 :: IO ()
 testB5 = runBasisTest "./aterm-res/lmr/definitions/rec-function-def.aterm" True
@@ -175,23 +175,25 @@ runBasisTest s v = do
   p <- parse s
   case p of
     Left _ -> assertFailure "Failed to parse"
-    Right p -> let res = runTC p in do
-      seq res print "aaa?"
-      _ <- print' res
-      assertEqual "Correct typing behaviour" v (isRight res)
+    Right p -> intentionalBehaviour "Type checks" v $ runTC p
 
 runModuleTest :: String -> Bool -> IO ()
 runModuleTest s v = do
   p <- parse s
-  case p of 
+  case p of
     Left _ -> assertFailure "Failed to parse"
     Right m -> let res = (runTCMod $ createModuleTree m) in do
       print' res
       assertEqual "Module works" v (isRight res)
 
+intentionalBehaviour :: String -> Bool -> Either String (Graph Label Decl) -> IO ()
+intentionalBehaviour message expected res = do
+  print' res
+  assertEqual message expected $ isRight res
+
 print' :: Either String (Graph Label Decl) -> IO ()
 print' (Right g) = print g
-print' (Left e) = print e
+print' (Left e) = putStrLn $ "Received error message: " ++ e
 
 main :: IO ()
 main = do

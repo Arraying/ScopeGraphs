@@ -166,12 +166,12 @@ tc Fls _ t = equals t boolT
 tc (Syntax.Id ident) g t = do
   ds <- getQuery ident <&> map projTy
   case ds of
-    []  -> err "No matching declarations found"
+    []  -> err $ "No matching declarations found for " ++ show ident
     [ty] -> equals t ty
     _   -> err "BUG: Multiple declarations found" -- cannot happen for STLC
   where
     getQuery (LILiteral x) = query g re pShortest (matchDecl x)
-    getQuery _ = err "Unsupported querying"
+    getQuery _ = err "Unsupported querying" -- TODO: NOT IMPLEMENTED.
 tc (Plus l r) g t = tcBinop l r numT numT g t
 tc (Minus l r) g t = tcBinop l r numT numT g t
 tc (Mult l r) g t = tcBinop l r numT numT g t
@@ -200,10 +200,10 @@ tc (App fn a) g t = do
   tc a g argType
 tc (LetRec (v, e) b) g t = do
   t' <- exists
-  tc e g t'
   g' <- new
   edge g' P g
   sink g' V (Var v t')
+  tc e g' t'
   tc b g' t
 
 tcBinop :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> LExp -> Ty -> Ty -> Sc -> Ty -> Free f ()
