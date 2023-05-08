@@ -23,8 +23,8 @@ parseDecl (AFunc "Module" [AStr name, decls]) = do
 parseDecl (AFunc "Import" [n]) = do
   n' <- parseMod n
   return $ LImport n'
-parseDecl (AFunc "Def" bs) = do
-  bs' <- mapM parseBind bs
+parseDecl (AFunc "Def" (b:_)) = do
+  bs' <- parseBind b
   return $ LDef bs'
   where
     parseBind (AFunc "DefBind" [AStr n, e]) = do

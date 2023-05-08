@@ -89,6 +89,24 @@ constrHierarchy (Named name imports children decls) g = do
   -- Return the annotated tree with the scope.
   return $ ANamed g' name imports children' decls
 
+-- Create all declarations.
+constrDecls :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f [(Sc, Ty, LExp)]
+constrDecls (AAnon g _ children decls) = constrDecls' g children decls
+constrDecls (ANamed g _ _ children decls) = constrDecls' g children decls
+
+-- Specifically, create declarations of current module and recurse to child modules.
+constrDecls' :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => Sc -> [AnnotatedModTree] -> [LDecl] -> Free f [(Sc, Ty, LExp)]
+constrDecls' g children decls = do
+  curr <- catMaybes <$> mapM (make g) decls
+  rest <- concat <$> mapM constrDecls children
+  return $ curr ++ rest
+  where
+    make g (LDef (s, e)) = do
+      t <- exists
+      sink g V $ Var s t
+      return $ Just (g, t, e)
+    make _ _ = return Nothing
+
 resImports :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> [ModSummary] -> Free f ()
 resImports (AAnon g i children _) m = do
   trace "DOING IMPORTS FOR ANONYMOUS" $ resImport (g, i) m
@@ -141,69 +159,40 @@ resImport (g, rawImports) m = do
 -- Type Checker --
 ------------------
 
-tcExp :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> Sc -> Free f Ty
-tcExp (Num _) _ = return numT
-tcExp Tru _ = return boolT
-tcExp Fls _ = return boolT
-tcExp (Syntax.Id ident) g = do
+tc :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> Sc -> Ty -> Free f ()
+tc (Num _) _ t = equals t numT
+tc Tru _ t = equals t boolT
+tc Fls _ t = equals t boolT
+tc (Syntax.Id ident) g t = do
   ds <- getQuery ident <&> map projTy
   case ds of
     []  -> err "No matching declarations found"
-    [t] -> return t
+    [ty] -> equals t ty
     _   -> err "BUG: Multiple declarations found" -- cannot happen for STLC
   where
     getQuery (LILiteral x) = query g re pShortest (matchDecl x)
     getQuery _ = err "Unsupported querying"
-tcExp (Plus l r) g = binop l r numT numT g
-tcExp (Minus l r) g = binop l r numT numT g
-tcExp (Mult l r) g = binop l r numT numT g
-tcExp (Eql l r) g = binop l r numT boolT g
-tcExp (If c t e) g = do
-  c' <- tcExp c g
-  t' <- tcExp t g
-  f' <- tcExp e g
-  if c' == boolT then
-    if t' == f' then return t' else err "If branches should be the same"
-  else err "If expects boolean condition"
-tcExp (Fn (k, t) b) g = do
-  let t' = toTy t
-  g' <- new
-  edge g' P g
-  sink g' V $ Var k t'
-  t'' <- tcExp b g'
-  return $ funT t' t''
-tcExp (App f a) g = do
-  f' <- tcExp f g
-  a' <- tcExp a g
-  case f' of
-    (T.Term "->" [from, to]) | from == a' -> return to
-    (T.Term "->" _) -> err "Application argument mismatch"
-    _ -> err "Application expects function"
-tcExp (LetRec (k, v) b) g = do
-  v' <- tcExp v g
-  g' <- new
-  edge g' P g
-  sink g' V $ Var k v'
-  tcExp b g'
+tc (Plus l r) g t = tcBinop l r numT numT g t
+tc (Minus l r) g t = tcBinop l r numT numT g t
+tc (Mult l r) g t = tcBinop l r numT numT g t
+tc (Eql l r) g t = tcBinop l r numT boolT g t
+tc (If c i f) g t = do
+  c' <- exists
+  tc c g c'
+  equals c' boolT
+  i' <- exists
+  f' <- exists
+  tc i g i'
+  tc f g f'
+  equals i' f'
+  equals t i'
+tc _ _ _ = err "Currently unsuppoted operator"
 
-binop :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> LExp -> Ty -> Ty -> Sc -> Free f Ty
-binop l r input output g = do
-  l' <- tcExp l g
-  r' <- tcExp r g
-  if l' == input && r' == input then
-    return output
-  else
-    err "Binop type error"
-
--- Function that handles each language construct
-tc :: ( Functor f
-      , Exists Ty < f
-      , Equals Ty < f
-      , Error String < f
-      , Scope Sc Label Decl < f
-      )
-   => LProg -> Sc -> Free f Ty
-tc _ _ = undefined
+tcBinop :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> LExp -> Ty -> Ty -> Sc -> Ty -> Free f ()
+tcBinop l r wantInput wantOutput g t = do
+  equals wantOutput t
+  tc l g wantInput
+  tc r g wantInput
 
 -- Typechecks the module system.
 tcMod :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc -> Free f AnnotatedModTree
@@ -212,51 +201,31 @@ tcMod modl g = do
   resImports annotated $ createModuleOrdering annotated
   return annotated
 
+tcAll :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LProg -> Sc -> Free f ()
+tcAll e g = do
+  annotatedModTree <- tcMod (createModuleTree e) g
+  decls <- constrDecls annotatedModTree
+  mapM_ (\(g, t, e) -> tc e g t) decls
+
 -- Tie it all together
-runTC :: LProg -> Either String (Ty, Graph Label Decl)
+runTC :: LProg -> Either String (Graph Label Decl)
 runTC e =
   let x = un
         $ handle hErr
         $ flip (handle_ hScope) emptyGraph
         $ flip (handle_ hEquals) Map.empty
-        $ handle_ hExists
-        (tc e 0
+        $ handle_ hExists (tcAll e 0
         :: Free ( Exists Ty
                 + Equals Ty
                 + Scope Sc Label Decl
                 + Error String
                 + Nop )
-                Ty
+                ()
         ) 0
   in case x of
     Left err -> Left err
     Right (Left (UnificationError t1 t2), _)  -> Left $ "Unification error: " ++ show t1 ++ " != " ++ show t2
-    Right (Right (t, u), sg)                  ->
-      let t' = explicate u t in
-        Right (t', sg)
-
--- For debugging.
-runTCExp :: LExp -> Either String (Ty, Graph Label Decl)
-runTCExp e =
-  let x = un
-        $ handle hErr
-        $ flip (handle_ hScope) emptyGraph
-        $ flip (handle_ hEquals) Map.empty
-        $ handle_ hExists
-        (tcExp e 0
-        :: Free ( Exists Ty
-                + Equals Ty
-                + Scope Sc Label Decl
-                + Error String
-                + Nop )
-                Ty
-        ) 0
-  in case x of
-    Left err -> Left err
-    Right (Left (UnificationError t1 t2), _)  -> Left $ "Unification error: " ++ show t1 ++ " != " ++ show t2
-    Right (Right (t, u), sg)                  ->
-      let t' = explicate u t in
-        Right (t', sg)
+    Right (Right (_, _), sg)                  -> Right sg
 
 -- For debugging.
 runTCMod :: ModTree -> Either String (Graph Label Decl)
