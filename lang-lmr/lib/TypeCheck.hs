@@ -62,6 +62,30 @@ re'' = Dot (Star $ Atom P) $ Atom M
 pShortest :: PathOrder Label Decl
 pShortest p1 p2 = lenRPath p1 < lenRPath p2
 
+-- Path order based on Ministatix priorities.
+pPriority :: PathOrder Label Decl
+pPriority (ResolvedPath p1 _ _) (ResolvedPath p2 _ _) = comparePaths (extractPath p1) (extractPath p2)
+  where
+    comparePaths [] [] = True
+    comparePaths (_:_) [] = False
+    comparePaths [] (_:_) = True
+    comparePaths (x:xs) (y:ys) = case compareLabel x y of
+      Just r -> r == LT
+      Nothing -> comparePaths xs ys
+    compareLabel M P = Just LT
+    compareLabel P M = Just GT
+    compareLabel M I = Just LT
+    compareLabel I M = Just GT
+    compareLabel V P = Just LT
+    compareLabel P V = Just GT
+    compareLabel V I = Just LT
+    compareLabel I V = Just GT
+    compareLabel I P = Just LT
+    compareLabel P I = Just GT
+    compareLabel _ _ = Nothing
+    extractPath (Start _) = []
+    extractPath (Step p l _) = extractPath p ++ [l]
+
 -- Match declaration with particular name
 matchDecl :: String -> Decl -> Bool
 matchDecl x (Var x' _) = x == x'
@@ -129,17 +153,20 @@ resImport (g, rawImports) m = do
       -- First we split into non-shadow imports and shadow imports.
       let (normalImportsLeft, shadowedImportsLeft) = trace ("LEFT " ++ show importsLeft ++ " FRONTIER " ++ show (f:fs)) $ createShadowSplit importsLeft (map fst m)
       -- The first part is to try and resolve all the non-shadowing imports.
-      normalFound <-  mapM (`algorithm'` f) normalImportsLeft
+      normalFound <- mapM (`algorithm'` f) normalImportsLeft
       let normalFound' = catMaybes normalFound
       -- Now we take the results and search from those and the frontier for ambiguous imports.
       let shadowedSearchOrigins = f : map snd normalFound'
-      return undefined
-      -- -- Now we draw all the edges.
-      -- trace ("ALGORITHM RESPONSE IS " ++ show found) $ mapM_ (edge g I . snd) found'
-      -- -- Update imports.
-      -- let importsLeft' = importsLeft \\ map fst found'
-      -- -- Now recursively call it again.
-      -- algorithm m importsLeft' $ fs ++ map snd found'
+      shadowedFound <- mapM (`algorithm''` shadowedSearchOrigins) shadowedImportsLeft
+      let shadowedFound' = catMaybes shadowedFound
+      -- We've resolved as many imports as possible.
+      let found = normalFound' ++ shadowedFound'
+      -- Draw all the edges.
+      trace ("ALGORITHM RESPONSE IS " ++ show found) $ mapM_ (edge g I . snd) found
+      -- Update imports.
+      let importsLeft' = importsLeft \\ map fst found
+      -- Now recursively call it again.
+      algorithm m importsLeft' $ fs ++ map snd found
     algorithm' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> Free f (Maybe (LModule, Sc))
     algorithm' imp from = do
       -- We try to query the particular import via P*M.
