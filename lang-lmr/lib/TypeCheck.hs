@@ -64,13 +64,18 @@ pShortest p1 p2 = lenRPath p1 < lenRPath p2
 
 -- Path order based on Ministatix priorities.
 pPriority :: PathOrder Label Decl
-pPriority (ResolvedPath p1 _ _) (ResolvedPath p2 _ _) = comparePaths (extractPath p1) (extractPath p2)
+pPriority p1 p2 = val == LT || val == EQ
   where
-    comparePaths [] [] = True
-    comparePaths (_:_) [] = False
-    comparePaths [] (_:_) = True
+    val = pPriority' p1 p2
+
+pPriority' :: ResolvedPath Label Decl -> ResolvedPath Label Decl -> Ordering
+pPriority' (ResolvedPath p1 _ _) (ResolvedPath p2 _ _) = comparePaths (extractPath p1) (extractPath p2)
+  where
+    comparePaths [] [] = EQ
+    comparePaths (_:_) [] = GT
+    comparePaths [] (_:_) = LT
     comparePaths (x:xs) (y:ys) = case compareLabel x y of
-      Just r -> r == LT
+      Just r -> r
       Nothing -> comparePaths xs ys
     compareLabel M P = Just LT
     compareLabel P M = Just GT
@@ -153,11 +158,10 @@ resImport (g, rawImports) m = do
       -- First we split into non-shadow imports and shadow imports.
       let (normalImportsLeft, shadowedImportsLeft) = trace ("LEFT " ++ show importsLeft ++ " FRONTIER " ++ show (f:fs)) $ createShadowSplit importsLeft (map fst m)
       -- The first part is to try and resolve all the non-shadowing imports.
-      normalFound <- mapM (`algorithm'` f) normalImportsLeft
+      normalFound <- trace ("NORMAL ARE " ++ show normalImportsLeft ++ ", SHADOW ARE " ++ show shadowedImportsLeft) $ mapM (`algorithm'` f) normalImportsLeft
       let normalFound' = catMaybes normalFound
       -- Now we take the results and search from those and the frontier for ambiguous imports.
-      let shadowedSearchOrigins = f : map snd normalFound'
-      shadowedFound <- mapM (`algorithm''` shadowedSearchOrigins) shadowedImportsLeft
+      shadowedFound <- mapM (\imp -> algorithm'' imp f (map snd normalFound')) shadowedImportsLeft
       let shadowedFound' = catMaybes shadowedFound
       -- We've resolved as many imports as possible.
       let found = normalFound' ++ shadowedFound'
@@ -170,23 +174,44 @@ resImport (g, rawImports) m = do
     algorithm' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> Free f (Maybe (LModule, Sc))
     algorithm' imp from = do
       -- We try to query the particular import via P*M.
-      res <- trace ("HOP RESOLVING " ++ show imp) hop from imp
+      res <- trace ("HOP RESOLVING " ++ show imp) hop singularResolve from imp
       case res of
-        Just g' -> return $ Just (imp, g')
+        Just (g', _) -> return $ Just (imp, g')
         Nothing -> return Nothing
-    algorithm'' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> [Sc] -> Free f (Maybe (LModule, Sc))
-    algorithm'' = undefined
-    hop from (LMLiteral s) = singularResolve from s
-    hop from (LMNested s s') = do
-      recursive <- hop from s
+    algorithm'' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> [Sc] -> Free f (Maybe (LModule, Sc))
+    algorithm'' imp f fs = do
+      -- We try to query the potential paths via P*M.
+      fromOriginal <- hop multipleResolve f imp
+      fromDiscovered <- mapM (\from -> hop multipleResolve from imp) fs
+      let paths = catMaybes $ fromOriginal : fromDiscovered
+      -- Return the most suitable path.
+      let ordered = sortBy (\(_, p1) (_, p2) -> pPriority' p1 p2) paths
+      case trace ("POSSIBLE ORDERED PATHS ARE " ++ show ordered) $ ordered of
+        -- Nothing found, this is fine too.
+        [] -> return Nothing
+        -- Find minimum by LMR priority rules.
+        _ -> return $ trace ("RETURNING ID " ++ show (fst $ head ordered)) $ Just (imp, fst $ head ordered)
+    hop :: (Functor f, Error String < f, Scope Sc Label Decl < f) => (Sc -> String -> Free f (Maybe (Sc, a))) -> Sc -> LModule -> Free f (Maybe (Sc, a))
+    hop resolver from (LMLiteral s) = resolver from s
+    hop resolver from (LMNested s s') = do
+      recursive <- hop resolver from s
       case recursive of
         Nothing -> return Nothing
-        Just x -> singularResolve x s'
+        Just (x, _) -> resolver x s'
+    singularResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> String -> Free f (Maybe (Sc, ()))
     singularResolve from to = do
-      res <- trace ("TRYING TO RESOLVE " ++ to) query from re'' pShortest $ matchDecl to
-      case trace ("RES IS " ++ show res) res of
+      res <- trace ("SINGULAR TRYING TO RESOLVE " ++ to) query from re'' pShortest $ matchDecl to
+      case trace ("SINGULAR RES IS " ++ show res) res of
         [] -> return Nothing
-        [Modl _ g'] -> return $ Just g'
+        [Modl _ g'] -> return $ Just (g', ())
+        _ -> err $ "Found multiple ocurrences of " ++ to
+    multipleResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> String -> Free f (Maybe (Sc, ResolvedPath Label Decl))
+    multipleResolve from to = do
+      res <- trace ("MULTIPLE TRYING TO RESOLVE " ++ to) queryWithPath from re'' pShortest $ matchDecl to
+      case trace ("MULTIPLE RES IS " ++ show res) res of
+        [] -> return Nothing
+        [ResolvedPath p l d@(Modl _ g)] -> return $ Just (g, ResolvedPath p l d)
+        [ResolvedPath {}] -> err "Internal error resolving module lookups"
         _ -> err $ "Found multiple ocurrences of " ++ to
 
 ------------------
