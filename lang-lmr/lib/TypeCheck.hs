@@ -120,21 +120,26 @@ resImport (g, rawImports) m = do
   -- Get the correct order going.
   let imports = sortModules (map fst m) rawImports
   -- Run the algorithm.
-  algorithm imports [g]
+  algorithm m imports [g]
   where
-    algorithm :: (Functor f, Error String < f, Scope Sc Label Decl < f) => [LModule] -> [Sc] -> Free f ()
-    algorithm [] _ = return ()
-    algorithm xs@(_:_) [] = err $ "Could not resolve imports " ++ intercalate ", " (map show xs)
-    algorithm importsLeft (f:fs) = do
-      found <- trace ("LEFT " ++ show importsLeft ++ " FRONTIER " ++ show (f:fs)) $ mapM (`algorithm'` f) importsLeft
-      -- Flatten.
-      let found' = catMaybes found
-      -- Now we draw all the edges.
-      trace ("ALGORITHM RESPONSE IS " ++ show found) $ mapM_ (edge g I . snd) found'
-      -- Update imports.
-      let importsLeft' = importsLeft \\ map fst found'
-      -- Now recursively call it again.
-      algorithm importsLeft' $ fs ++ map snd found'
+    algorithm :: (Functor f, Error String < f, Scope Sc Label Decl < f) => [ModSummary] -> [LModule] -> [Sc] -> Free f ()
+    algorithm _ [] _ = return ()
+    algorithm _ xs@(_:_) [] = err $ "Could not resolve imports " ++ intercalate ", " (map show xs)
+    algorithm m importsLeft (f:fs) = do
+      -- First we split into non-shadow imports and shadow imports.
+      let (normalImportsLeft, shadowedImportsLeft) = trace ("LEFT " ++ show importsLeft ++ " FRONTIER " ++ show (f:fs)) $ createShadowSplit importsLeft (map fst m)
+      -- The first part is to try and resolve all the non-shadowing imports.
+      normalFound <-  mapM (`algorithm'` f) normalImportsLeft
+      let normalFound' = catMaybes normalFound
+      -- Now we take the results and search from those and the frontier for ambiguous imports.
+      let shadowedSearchOrigins = f : map snd normalFound'
+      return undefined
+      -- -- Now we draw all the edges.
+      -- trace ("ALGORITHM RESPONSE IS " ++ show found) $ mapM_ (edge g I . snd) found'
+      -- -- Update imports.
+      -- let importsLeft' = importsLeft \\ map fst found'
+      -- -- Now recursively call it again.
+      -- algorithm m importsLeft' $ fs ++ map snd found'
     algorithm' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> Free f (Maybe (LModule, Sc))
     algorithm' imp from = do
       -- We try to query the particular import via P*M.
@@ -142,6 +147,8 @@ resImport (g, rawImports) m = do
       case res of
         Just g' -> return $ Just (imp, g')
         Nothing -> return Nothing
+    algorithm'' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> [Sc] -> Free f (Maybe (LModule, Sc))
+    algorithm'' = undefined
     hop from (LMLiteral s) = singularResolve from s
     hop from (LMNested s s') = do
       recursive <- hop from s

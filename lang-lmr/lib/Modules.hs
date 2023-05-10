@@ -32,6 +32,12 @@ createModuleHops :: LModule -> [String]
 createModuleHops (LMLiteral s) = [s]
 createModuleHops (LMNested r s) = createModuleHops r ++ [s]
 
+createShadowSplit :: [LModule] -> [String] -> ([LModule], [LModule])
+createShadowSplit rawImports modNames = (filter (shouldBeDuplicate False) rawImports, filter (shouldBeDuplicate True) rawImports)
+  where
+    shouldBeDuplicate b i = (moduleHead i `elem` duplicateNames) == b
+    duplicateNames = modNames \\ nub modNames
+
 isEverythingImported :: AnnotatedModTree -> Bool
 isEverythingImported (AAnon _ imports children _) = null imports && all isEverythingImported children
 isEverythingImported (ANamed _ _ imports children _) = null imports && all isEverythingImported children
