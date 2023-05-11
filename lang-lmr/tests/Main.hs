@@ -49,7 +49,7 @@ basis = TestList
 
 modules :: Test
 modules = TestList 
-  [ "test" ~: testM8 ]
+  [ "test" ~: testM4 ]
 
 testP1 :: IO ()
 testP1 = runParseTest "./aterm-res/lmr/empty.aterm"

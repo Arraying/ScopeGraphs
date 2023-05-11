@@ -183,7 +183,9 @@ resImport (g, rawImports) m = do
       -- We try to query the potential paths via P*M.
       fromOriginal <- hop multipleResolve f imp
       fromDiscovered <- mapM (\from -> hop multipleResolve from imp) fs
-      let paths = catMaybes $ fromOriginal : fromDiscovered
+      -- Need to add the virtual import edge to make path comparison fair.
+      let fromDiscovered' = map (fmap (\(g', ResolvedPath p l d) -> (g', ResolvedPath (addFakeImportEdgeToPath f p) l d))) fromDiscovered
+      let paths = catMaybes $ fromOriginal : fromDiscovered'
       -- Return the most suitable path.
       let ordered = sortBy (\(_, p1) (_, p2) -> pPriority' p1 p2) paths
       case trace ("POSSIBLE ORDERED PATHS ARE " ++ show ordered) $ ordered of
@@ -213,6 +215,8 @@ resImport (g, rawImports) m = do
         [ResolvedPath p l d@(Modl _ g)] -> return $ Just (g, ResolvedPath p l d)
         [ResolvedPath {}] -> err "Internal error resolving module lookups"
         _ -> err $ "Found multiple ocurrences of " ++ to
+    addFakeImportEdgeToPath trueStart (Start fakeStart) = Step (Start trueStart) I fakeStart
+    addFakeImportEdgeToPath trueStart (Step p l s) = Step (addFakeImportEdgeToPath trueStart p) l s
 
 ------------------
 -- Type Checker --
