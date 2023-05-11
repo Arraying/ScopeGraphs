@@ -28,10 +28,6 @@ createModuleOrdering a = bfs [a]
     bfs ((AAnon _ _ children _):xs) = bfs $ xs ++ children
     bfs ((ANamed g n _ children _):xs) = (:) (n, g) $ bfs $ xs ++ children
 
-createModuleHops :: LModule -> [String]
-createModuleHops (LMLiteral s) = [s]
-createModuleHops (LMNested r s) = createModuleHops r ++ [s]
-
 createShadowSplit :: [LModule] -> [String] -> ([LModule], [LModule])
 createShadowSplit rawImports modNames = (filter (shouldBeDuplicate False) rawImports, filter (shouldBeDuplicate True) rawImports)
   where
@@ -56,7 +52,7 @@ sortModules ms = sortBy sorter
     sorter l r = compare (fromMaybe (-1) $ elemIndex (moduleHead l) ms) (fromMaybe (-1) $ elemIndex (moduleHead r) ms)
 
 pr :: Maybe String -> LModule -> String
-pr q s = par q ++ intercalate "." (createModuleHops s)
+pr q s = par q ++ intercalate "." (traceHops s)
   where
     par Nothing = ""
     par (Just s) = s ++ ": "

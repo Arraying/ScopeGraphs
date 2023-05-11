@@ -72,6 +72,17 @@ instance Show LIdent where
   show (LILiteral s) = s
   show (LINested n s) = show n ++ "." ++ s
 
+class Hopper a where
+  traceHops :: a -> [String]
+
+instance Hopper LModule where
+  traceHops (LMLiteral s) = [s]
+  traceHops (LMNested r s) = traceHops r ++ [s]
+
+instance Hopper LIdent where
+  traceHops (LILiteral s) = [s]
+  traceHops (LINested r s) = traceHops r ++ [s]
+
 toTy :: LType -> Ty
 toTy LInt = numT
 toTy LBool = boolT

@@ -47,13 +47,13 @@ new = S.new @_ @Label @Decl
 sink :: Scope Sc Label Decl < f => Sc -> Label -> Decl -> Free f ()
 sink = S.sink @_ @Label @Decl
 
--- Regular expression P*D
+-- Regular expression P*V TODO Set to P*I?V
 re :: RE Label
-re = Dot (Star $ Atom P) $ Atom V
+re = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom I)) $ Atom V
 
--- Regular expression (P|I)*M
+-- Regular expression P*I?M
 re' :: RE Label
-re' = Dot (Star $ Pipe (Atom P) (Atom I)) $ Atom M
+re' = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom I)) $ Atom M
 
 re'' :: RE Label
 re'' = Dot (Star $ Atom P) $ Atom M
@@ -227,14 +227,8 @@ tc (Num _) _ t = equals t numT
 tc Tru _ t = equals t boolT
 tc Fls _ t = equals t boolT
 tc (Syntax.Id ident) g t = do
-  ds <- getQuery ident <&> map projTy
-  case ds of
-    []  -> err $ "No matching declarations found for " ++ show ident
-    [ty] -> equals t ty
-    _   -> err "BUG: Multiple declarations found" -- cannot happen for STLC
-  where
-    getQuery (LILiteral x) = query g re pShortest (matchDecl x)
-    getQuery _ = err "Unsupported querying" -- TODO: NOT IMPLEMENTED.
+  t' <- tcLookup g (traceHops ident)
+  equals t t'
 tc (Plus l r) g t = tcBinop l r numT numT g t
 tc (Minus l r) g t = tcBinop l r numT numT g t
 tc (Mult l r) g t = tcBinop l r numT numT g t
@@ -269,6 +263,22 @@ tc (LetRec (v, e) b) g t = do
   tc e g' t'
   tc b g' t
 
+tcLookup :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => Sc -> [String] -> Free f Ty
+tcLookup g [x] = do
+  ds <- query g re pShortest (matchDecl x)
+  case ds of 
+    [] -> err $ "Variable " ++ show x ++ " could not be resolved from scope " ++ show g
+    [Var _ ty] -> return ty
+    _   -> err $ "Variable " ++ show x ++ " could not be resolved to a single variable "
+tcLookup g (x:xs) = do
+  -- We need to make a hop from g to x.
+  ds <- query g re' pShortest (matchDecl x)
+  case ds of
+    [] -> err $ "Module " ++ show x ++ " could not be resolved from scope " ++ show g
+    [Modl _ g'] -> tcLookup g' xs
+    _ -> err $ "Module " ++ show x ++ " could not be resolved to a single module"
+tcLookup _ _ = err "Critical internal lookup error"
+
 tcBinop :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> LExp -> Ty -> Ty -> Sc -> Ty -> Free f ()
 tcBinop l r wantInput wantOutput g t = do
   equals wantOutput t
@@ -290,7 +300,7 @@ tcAll e g = do
 
 -- Tie it all together
 runTC :: LProg -> Either String (Graph Label Decl)
-runTC e =
+runTC e = trace "RUNNING TC " $
   let x = un
         $ handle hErr
         $ flip (handle_ hScope) emptyGraph
