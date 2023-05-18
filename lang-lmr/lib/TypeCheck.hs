@@ -58,10 +58,6 @@ re' = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom I)) $ Atom M
 re'' :: RE Label
 re'' = Dot (Star $ Atom P) $ Atom M
 
--- Path order based on length
-pShortest :: PathOrder Label Decl
-pShortest p1 p2 = lenRPath p1 < lenRPath p2
-
 -- Path order based on Ministatix priorities.
 pPriority :: PathOrder Label Decl
 pPriority p1 p2 = val == LT || val == EQ
@@ -202,14 +198,14 @@ resImport (g, rawImports) m = do
         Just (x, _) -> resolver x s'
     singularResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> String -> Free f (Maybe (Sc, ()))
     singularResolve from to = do
-      res <- trace ("SINGULAR TRYING TO RESOLVE " ++ to) query from re'' pShortest $ matchDecl to
+      res <- trace ("SINGULAR TRYING TO RESOLVE " ++ to) query from re'' pPriority $ matchDecl to
       case trace ("SINGULAR RES IS " ++ show res) res of
         [] -> return Nothing
         [Modl _ g'] -> return $ Just (g', ())
         _ -> err $ "Found multiple ocurrences of " ++ to
     multipleResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> String -> Free f (Maybe (Sc, ResolvedPath Label Decl))
     multipleResolve from to = do
-      res <- trace ("MULTIPLE TRYING TO RESOLVE " ++ to) queryWithPath from re'' pShortest $ matchDecl to
+      res <- trace ("MULTIPLE TRYING TO RESOLVE " ++ to) queryWithPath from re'' pPriority $ matchDecl to
       case trace ("MULTIPLE RES IS " ++ show res) res of
         [] -> return Nothing
         [ResolvedPath p l d@(Modl _ g)] -> return $ Just (g, ResolvedPath p l d)
@@ -265,14 +261,14 @@ tc (LetRec (v, e) b) g t = do
 
 tcLookup :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => Sc -> [String] -> Free f Ty
 tcLookup g [x] = do
-  ds <- query g re pShortest (matchDecl x)
+  ds <- query g re pPriority (matchDecl x)
   case ds of 
     [] -> err $ "Variable " ++ show x ++ " could not be resolved from scope " ++ show g
     [Var _ ty] -> return ty
     _   -> err $ "Variable " ++ show x ++ " could not be resolved to a single variable "
 tcLookup g (x:xs) = do
   -- We need to make a hop from g to x.
-  ds <- query g re' pShortest (matchDecl x)
+  ds <- query g re' pPriority (matchDecl x)
   case ds of
     [] -> err $ "Module " ++ show x ++ " could not be resolved from scope " ++ show g
     [Modl _ g'] -> tcLookup g' xs
