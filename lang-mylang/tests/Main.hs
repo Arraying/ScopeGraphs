@@ -25,4 +25,4 @@ main :: IO ()
 main = do
     result <- runTestTT tests
     print result
-    if failures result > 0 then Exit.exitFailure else Exit.exitSuccess
+    if errors result > 0 || failures result > 0 then Exit.exitFailure else Exit.exitSuccess
