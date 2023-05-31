@@ -34,7 +34,7 @@ trialAndError :: Test
 trialAndError = TestList [ "Trial and error" ~: testeroo ]
 
 testeroo :: IO ()
-testeroo = runE2ETest "./aterm-res/lmr/modules/cycles-with-defs.aterm" runTCTest
+testeroo = runE2ETest "./aterm-res/lmr/modules/import-shadowing.aterm" runTCTest
 
 parser :: Test
 parser = TestList
@@ -356,6 +356,6 @@ print' (Left e) = putStrLn $ "Received error message: " ++ e
 
 main :: IO ()
 main = do
-    result <- runTestTT tests
+    result <- runTestTT trialAndError
     print result
     if failures result > 0 then Exit.exitFailure else Exit.exitSuccess

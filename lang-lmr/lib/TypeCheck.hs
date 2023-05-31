@@ -219,7 +219,7 @@ resImport (g, rawImports) m = do
 ------------------
 
 tc :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LExp -> Sc -> Ty -> Free f ()
-tc (Num _) _ t = equals t numT
+tc (Num _) _ t = error "internal error" -- equals t numT
 tc Tru _ t = equals t boolT
 tc Fls _ t = equals t boolT
 tc (Syntax.Id ident) g t = do
