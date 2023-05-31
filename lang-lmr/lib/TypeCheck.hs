@@ -1,9 +1,7 @@
 module TypeCheck where
 
-import Data.Functor
 import qualified Data.Map as Map
 import Data.Regex
-import qualified Data.Term as T
 
 import Free hiding (R)
 import Free.Scope hiding (edge, new, sink)
