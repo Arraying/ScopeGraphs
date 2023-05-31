@@ -34,7 +34,7 @@ trialAndError :: Test
 trialAndError = TestList [ "Trial and error" ~: testeroo ]
 
 testeroo :: IO ()
-testeroo = runE2ETest "./aterm-res/lmr/modules/cycles-with-defs.aterm" runTCTest
+testeroo = runE2ETest "./aterm-res/lmr/modules/import-shadowing.aterm" runTCTest
 
 parser :: Test
 parser = TestList

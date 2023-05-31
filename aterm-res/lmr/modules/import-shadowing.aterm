@@ -12,11 +12,12 @@ Program(
       "M"
     , [ Import(ModRef("B"))
       , Import(ModRef("C"))
+      , Def(DefBind("y", Var(VarRef("x"))))
       ]
     )
   , Module(
       "C"
-    , [ Module("B", []) ]
+    , [ Module("B", [Def(DefBind("x", Int("19")))]) ]
     )
   ]
 )
