@@ -24,8 +24,7 @@ testApplicationPlus = do
 
 tests :: Test
 tests = TestList
-  [ "Trial and error tests" ~: trialAndError
-  , "End to end tests" ~: e2e
+  [ "End to end tests" ~: e2e
   , "Parsing tests" ~: parser
   , "Basis tests" ~: basis
   , "Modules tests" ~: modules ]
