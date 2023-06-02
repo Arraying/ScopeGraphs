@@ -4,4 +4,4 @@ import Syntax (example)
 
 main :: IO ()
 main = do
-    print $ runTC example
+    print $ runTC []

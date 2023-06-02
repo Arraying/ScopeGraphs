@@ -72,6 +72,9 @@ instance Show LIdent where
   show (LILiteral s) = s
   show (LINested n s) = show n ++ "." ++ s
 
+instance Ord LModule where
+  l <= r = show l <= show r
+
 class Hopper a where
   traceHops :: a -> [String]
 

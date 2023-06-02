@@ -4,6 +4,7 @@ import Syntax
 import Free.Scope
 import Data.List
 import Data.Maybe
+import qualified Data.Map as M
 
 data ModTree
   = Anon [LModule] [ModTree] [LDecl]
@@ -17,6 +18,7 @@ data AnnotatedModTree
 
 type ModWrapped = (String, [LDecl])
 type ModSummary = (String, Sc)
+type Resolutions = M.Map Sc (M.Map LModule Sc)
 
 createModuleTree :: LProg -> ModTree
 createModuleTree xs = let (is, ms, ls) = extract xs in Anon is (map traverseModule ms) ls
@@ -68,3 +70,6 @@ extract' s [] = s
 extract' (is, ms, ls) ((LImport x):xs) = extract' (x:is, ms, ls) xs
 extract' (is, ms, ls) ((LMod n ds):xs) = extract' (is, (n, ds) : ms, ls) xs
 extract' (is, ms, ls) (l:xs) = extract' (is, ms, l : ls) xs
+
+resolutionFor :: Resolutions -> Sc -> LModule -> Sc
+resolutionFor rs g i = fromJust $ M.lookup g rs >>= M.lookup i
