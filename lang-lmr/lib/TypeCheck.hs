@@ -132,7 +132,7 @@ constrDecls' g children decls = do
 
 resImports :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> [ModSummary] -> Free f ()
 resImports (AAnon g i children _) m = do
-  trace "DOING IMPORTS FOR ANONYMOUS" $ resImport (g, i) m
+  trace ("DOING IMPORTS FOR ANONYMOUS WITH " ++ show m) $ resImport (g, i) m
   mapM_ (`resImports` m) children
 resImports (ANamed g _ i children _) m = do
   resImport (g, i) m
@@ -182,7 +182,7 @@ resImport (g, rawImports) m = do
       let paths = catMaybes $ fromOriginal : fromDiscovered'
       -- Return the most suitable path.
       let ordered = sortBy (\(_, p1) (_, p2) -> pPriority' p1 p2) paths
-      case trace ("POSSIBLE ORDERED PATHS ARE " ++ show ordered) $ ordered of
+      case trace ("POSSIBLE ORDERED PATHS ARE " ++ show ordered) ordered of
         -- Nothing found, this is fine too.
         [] -> return Nothing
         -- Find minimum by LMR priority rules.
