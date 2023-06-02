@@ -33,7 +33,7 @@ trialAndError :: Test
 trialAndError = TestList [ "Trial and error" ~: testeroo ]
 
 testeroo :: IO ()
-testeroo = runE2ETest "./aterm-res/lmr/modules/import-ambiguity.no.aterm" runTCTest >> error "intentional failure"
+testeroo = runE2ETest "./aterm-res/lmr/modules/import-ambiguity.no.aterm" runTCTest
 
 parser :: Test
 parser = TestList
@@ -73,17 +73,18 @@ e2e = TestList
   , "./aterm-res/lmr/modules/cycles-self.aterm" ~: testE2E11
   , "./aterm-res/lmr/modules/cycles-simple.aterm" ~: testE2E12
   , "./aterm-res/lmr/modules/cycles-with-defs.aterm" ~: testE2E13
-  , "./aterm-res/lmr/modules/import-inner-then-outer.aterm" ~: testE2E14
-  , "./aterm-res/lmr/modules/import-outer-inner.aterm" ~: testE2E15
-  , "./aterm-res/lmr/modules/import-outer-then-inner.aterm" ~: testE2E16
-  , "./aterm-res/lmr/modules/import-shadowing.aterm" ~: testE2E17
-  , "./aterm-res/lmr/modules/import-sibling.aterm" ~: testE2E18
-  , "./aterm-res/lmr/modules/inner-invisible-in-outer.no.aterm" ~: testE2E19
-  , "./aterm-res/lmr/modules/inner-shadows-outer.aterm" ~: testE2E20
-  , "./aterm-res/lmr/modules/outer-visible-in-inner.aterm" ~: testE2E21
-  , "./aterm-res/lmr/modules/qual-ref-to-inner.aterm" ~: testE2E22
-  , "./aterm-res/lmr/modules/qual-ref.aterm" ~: testE2E23
-  , "./aterm-res/lmr/modules/two-level-qual-ref.aterm" ~: testE2E24 ]
+  , "./aterm-res/lmr/modules/import-ambiguity.no.aterm" ~: testE2E14
+  , "./aterm-res/lmr/modules/import-inner-then-outer.aterm" ~: testE2E15
+  , "./aterm-res/lmr/modules/import-outer-inner.aterm" ~: testE2E16
+  , "./aterm-res/lmr/modules/import-outer-then-inner.aterm" ~: testE2E17
+  , "./aterm-res/lmr/modules/import-shadowing.aterm" ~: testE2E18
+  , "./aterm-res/lmr/modules/import-sibling.aterm" ~: testE2E19
+  , "./aterm-res/lmr/modules/inner-invisible-in-outer.no.aterm" ~: testE2E20
+  , "./aterm-res/lmr/modules/inner-shadows-outer.aterm" ~: testE2E21
+  , "./aterm-res/lmr/modules/outer-visible-in-inner.aterm" ~: testE2E22
+  , "./aterm-res/lmr/modules/qual-ref-to-inner.aterm" ~: testE2E23
+  , "./aterm-res/lmr/modules/qual-ref.aterm" ~: testE2E24
+  , "./aterm-res/lmr/modules/two-level-qual-ref.aterm" ~: testE2E25 ]
 
 basis :: Test
 basis = TestList
@@ -214,37 +215,40 @@ testE2E13 :: IO ()
 testE2E13 = runE2ETest "./aterm-res/lmr/modules/cycles-with-defs.aterm" runTCTest
 
 testE2E14 :: IO ()
-testE2E14 = runE2ETest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" runTCTest
+testE2E14 = runE2ETest "./aterm-res/lmr/modules/import-ambiguity.no.aterm" runTCFail
 
 testE2E15 :: IO ()
-testE2E15 = runE2ETest "./aterm-res/lmr/modules/import-outer-inner.aterm" runTCTest
+testE2E15 = runE2ETest "./aterm-res/lmr/modules/import-inner-then-outer.aterm" runTCTest
 
 testE2E16 :: IO ()
-testE2E16 = runE2ETest "./aterm-res/lmr/modules/import-outer-then-inner.aterm" runTCTest
+testE2E16 = runE2ETest "./aterm-res/lmr/modules/import-outer-inner.aterm" runTCTest
 
 testE2E17 :: IO ()
-testE2E17 = runE2ETest "./aterm-res/lmr/modules/import-shadowing.aterm" runTCTest
+testE2E17 = runE2ETest "./aterm-res/lmr/modules/import-outer-then-inner.aterm" runTCTest
 
 testE2E18 :: IO ()
-testE2E18 = runE2ETest "./aterm-res/lmr/modules/import-sibling.aterm" runTCTest
+testE2E18 = runE2ETest "./aterm-res/lmr/modules/import-shadowing.aterm" runTCTest
 
 testE2E19 :: IO ()
-testE2E19 = runE2ETest "./aterm-res/lmr/modules/inner-invisible-in-outer.no.aterm" runTCFail
+testE2E19 = runE2ETest "./aterm-res/lmr/modules/import-sibling.aterm" runTCTest
 
 testE2E20 :: IO ()
-testE2E20 = runE2ETest "./aterm-res/lmr/modules/inner-shadows-outer.aterm" runTCTest
+testE2E20 = runE2ETest "./aterm-res/lmr/modules/inner-invisible-in-outer.no.aterm" runTCFail
 
 testE2E21 :: IO ()
-testE2E21 = runE2ETest "./aterm-res/lmr/modules/outer-visible-in-inner.aterm" runTCTest
+testE2E21 = runE2ETest "./aterm-res/lmr/modules/inner-shadows-outer.aterm" runTCTest
 
 testE2E22 :: IO ()
-testE2E22 = runE2ETest "./aterm-res/lmr/modules/qual-ref-to-inner.aterm" runTCTest
+testE2E22 = runE2ETest "./aterm-res/lmr/modules/outer-visible-in-inner.aterm" runTCTest
 
 testE2E23 :: IO ()
-testE2E23 = runE2ETest "./aterm-res/lmr/modules/qual-ref.aterm" runTCTest
+testE2E23 = runE2ETest "./aterm-res/lmr/modules/qual-ref-to-inner.aterm" runTCTest
 
 testE2E24 :: IO ()
-testE2E24 = runE2ETest "./aterm-res/lmr/modules/two-level-qual-ref.aterm" runTCTest
+testE2E24 = runE2ETest "./aterm-res/lmr/modules/qual-ref.aterm" runTCTest
+
+testE2E25 :: IO ()
+testE2E25 = runE2ETest "./aterm-res/lmr/modules/two-level-qual-ref.aterm" runTCTest
 
 testB1 :: IO ()
 testB1 = runBasisTest "./aterm-res/lmr/definitions/missing-def.no.aterm" False

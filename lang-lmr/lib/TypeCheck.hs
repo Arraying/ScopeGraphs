@@ -20,20 +20,24 @@ data Label
   | I -- Import.
   | M -- Module.
   | V -- Variable.
+  | IRM -- Import resolution metadata.
   deriving (Show, Eq)
 
 data Decl
   = Var String Ty -- Variable declaration.
   | Modl String Sc -- Module declaration.
+  | ImportResolutionMeta LModule Sc -- What scope did LModule get resolved to?
   deriving (Eq)
 
 instance Show Decl where
   show (Var x t) = x ++ " : " ++ show t
   show (Modl x s) = "module " ++ x ++ " @ " ++ show s
+  show (ImportResolutionMeta x s) = "metadata " ++ show x ++ " / " ++ show s
 
 projTy :: Decl -> Ty
 projTy (Var _ t) = t
 projTy (Modl _ _) = error "Critical runtime error: projecting module"
+projTy (ImportResolutionMeta _ _) = error "Crritical runtime error: projecting metadata"
 
 -- Scope Graph Library Convenience
 edge :: Scope Sc Label Decl < f => Sc -> Label -> Sc -> Free f ()
@@ -55,6 +59,13 @@ re' = Dot (Dot (Star $ Atom P) (Pipe Empty $ Atom I)) $ Atom M
 
 re'' :: RE Label
 re'' = Dot (Star $ Atom P) $ Atom M
+
+re''' :: RE Label
+re''' = Atom IRM
+
+-- Shortest path, should not be used for actual resolution.
+pShortest :: PathOrder Label Decl
+pShortest p1 p2 = lenRPath p1 < lenRPath p2
 
 -- Path order based on Ministatix priorities.
 pPriority :: PathOrder Label Decl
@@ -89,6 +100,7 @@ pPriority' (ResolvedPath p1 _ _) (ResolvedPath p2 _ _) = comparePaths (extractPa
 matchDecl :: String -> Decl -> Bool
 matchDecl x (Var x' _) = x == x'
 matchDecl x (Modl x' _) = x == x'
+matchDecl x (ImportResolutionMeta i _) = x == intercalate "." (traceHops i)
 
 ------------------
 -- Scope Graphs --
@@ -141,10 +153,11 @@ resImports (ANamed g _ i children _) m = do
 resImport :: (Functor f, Error String < f, Scope Sc Label Decl < f) => (Sc, [LModule]) -> [ModSummary] -> Free f ()
 resImport (g, rawImports) m = do
   -- Get the correct order going.
-  let imports = sortModules (map fst m) rawImports
+  let imports = sortModules (map fst m) $ nub rawImports
   -- Run the algorithm.
   algorithm m imports [g]
   where
+    resolutionRegex = re''
     algorithm :: (Functor f, Error String < f, Scope Sc Label Decl < f) => [ModSummary] -> [LModule] -> [Sc] -> Free f ()
     algorithm _ [] _ = return ()
     algorithm _ xs@(_:_) [] = err $ "Could not resolve imports " ++ intercalate ", " (map show xs)
@@ -161,6 +174,7 @@ resImport (g, rawImports) m = do
       let found = normalFound' ++ shadowedFound'
       -- Draw all the edges.
       trace ("ALGORITHM RESPONSE IS " ++ show found) $ mapM_ (edge g I . snd) found
+      mapM_ (\(x, g') -> sink g IRM $ ImportResolutionMeta x g') found
       -- Update imports.
       let importsLeft' = importsLeft \\ map fst found
       -- Now recursively call it again.
@@ -168,15 +182,15 @@ resImport (g, rawImports) m = do
     algorithm' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> Free f (Maybe (LModule, Sc))
     algorithm' imp from = do
       -- We try to query the particular import via P*M.
-      res <- trace ("HOP RESOLVING " ++ show imp) hop singularResolve from imp
+      res <- trace ("HOP RESOLVING " ++ show imp) hop (singularResolve resolutionRegex) from imp
       case res of
         Just (g', _) -> return $ Just (imp, g')
         Nothing -> return Nothing
     algorithm'' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Sc -> [Sc] -> Free f (Maybe (LModule, Sc))
     algorithm'' imp f fs = do
       -- We try to query the potential paths via P*M.
-      fromOriginal <- hop multipleResolve f imp
-      fromDiscovered <- mapM (\from -> hop multipleResolve from imp) fs
+      fromOriginal <- hop (multipleResolve resolutionRegex) f imp
+      fromDiscovered <- mapM (\from -> hop (multipleResolve resolutionRegex) from imp) fs
       -- Need to add the virtual import edge to make path comparison fair.
       let fromDiscovered' = map (fmap (\(g', ResolvedPath p l d) -> (g', ResolvedPath (addFakeImportEdgeToPath f p) l d))) fromDiscovered
       let paths = catMaybes $ fromOriginal : fromDiscovered'
@@ -187,30 +201,60 @@ resImport (g, rawImports) m = do
         [] -> return Nothing
         -- Find minimum by LMR priority rules.
         _ -> return $ trace ("RETURNING ID " ++ show (fst $ head ordered)) $ Just (imp, fst $ head ordered)
-    hop :: (Functor f, Error String < f, Scope Sc Label Decl < f) => (Sc -> String -> Free f (Maybe (Sc, a))) -> Sc -> LModule -> Free f (Maybe (Sc, a))
-    hop resolver from (LMLiteral s) = resolver from s
-    hop resolver from (LMNested s s') = do
-      recursive <- hop resolver from s
-      case recursive of
-        Nothing -> return Nothing
-        Just (x, _) -> resolver x s'
-    singularResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> String -> Free f (Maybe (Sc, ()))
-    singularResolve from to = do
-      res <- trace ("SINGULAR TRYING TO RESOLVE " ++ to) query from re'' pPriority $ matchDecl to
-      case trace ("SINGULAR RES IS " ++ show res) res of
-        [] -> return Nothing
-        [Modl _ g'] -> return $ Just (g', ())
-        _ -> err $ "Found multiple ocurrences of " ++ to
-    multipleResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> String -> Free f (Maybe (Sc, ResolvedPath Label Decl))
-    multipleResolve from to = do
-      res <- trace ("MULTIPLE TRYING TO RESOLVE " ++ to) queryWithPath from re'' pPriority $ matchDecl to
-      case trace ("MULTIPLE RES IS " ++ show res) res of
-        [] -> return Nothing
-        [ResolvedPath p l d@(Modl _ g)] -> return $ Just (g, ResolvedPath p l d)
-        [ResolvedPath {}] -> err "Internal error resolving module lookups"
-        _ -> err $ "Found multiple ocurrences of " ++ to
     addFakeImportEdgeToPath trueStart (Start fakeStart) = Step (Start trueStart) I fakeStart
     addFakeImportEdgeToPath trueStart (Step p l s) = Step (addFakeImportEdgeToPath trueStart p) l s
+
+hop :: (Functor f, Error String < f, Scope Sc Label Decl < f) => (Sc -> String -> Free f (Maybe (Sc, a))) -> Sc -> LModule -> Free f (Maybe (Sc, a))
+hop resolver from (LMLiteral s) = resolver from s
+hop resolver from (LMNested s s') = do
+  recursive <- hop resolver from s
+  case recursive of
+    Nothing -> return Nothing
+    Just (x, _) -> resolver x s'
+singularResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => RE Label -> Sc -> String -> Free f (Maybe (Sc, ()))
+singularResolve regex from to = do
+  res <- trace ("SINGULAR TRYING TO RESOLVE " ++ to) query from regex pPriority $ matchDecl to
+  case trace ("SINGULAR RES IS " ++ show res) res of
+    [] -> return Nothing
+    [Modl _ g'] -> return $ Just (g', ())
+    _ -> err $ "Found multiple ocurrences of " ++ to
+multipleResolve :: (Functor f, Error String < f, Scope Sc Label Decl < f) => RE Label -> Sc -> String -> Free f (Maybe (Sc, ResolvedPath Label Decl))
+multipleResolve regex from to = do
+  res <- trace ("MULTIPLE TRYING TO RESOLVE " ++ to) queryWithPath from regex pPriority $ matchDecl to
+  case trace ("MULTIPLE RES IS " ++ show res) res of
+    [] -> return Nothing
+    [ResolvedPath p l d@(Modl _ g)] -> return $ Just (g, ResolvedPath p l d)
+    [ResolvedPath {}] -> err "Internal error resolving module lookups"
+    _ -> err $ "Found multiple ocurrences of " ++ to
+
+
+verifyImports :: (Functor f, Error String < f, Scope Sc Label Decl < f) => AnnotatedModTree -> Free f ()
+verifyImports (AAnon g i children _) = do
+  verifyImports' g i
+  mapM_ verifyImports children
+verifyImports (ANamed g _ i children _) = do
+  verifyImports' g i
+  mapM_ verifyImports children
+
+verifyImports' :: (Functor f, Error String < f, Scope Sc Label Decl < f) => Sc -> [LModule] -> Free f ()
+verifyImports' g = trace ("VERIFYING IMPORTS FOR " ++ show g) mapM_ verifyImport
+  where
+    verifyImport x = do
+      p <- resolveByQuery x
+      q <- resolveByMetadata x
+      if p == q then return () else err $ "Verification of import " ++ show x ++ " failed"
+    resolveByQuery :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Free f Sc
+    resolveByQuery x = do
+      res <- hop (singularResolve re') g x
+      case res of
+        Nothing -> err "Internal error verifying imports (query resolution)"
+        Just x -> return $ fst x
+    resolveByMetadata :: (Functor f, Error String < f, Scope Sc Label Decl < f) => LModule -> Free f Sc
+    resolveByMetadata x = do
+      res <- query g re''' pShortest $ matchDecl $ intercalate "." $ traceHops x
+      case res of
+        [ImportResolutionMeta _ g'] -> return g'
+        _ -> err "Internal error verifying imports (metadata resolution)"
 
 ------------------
 -- Type Checker --
@@ -284,6 +328,7 @@ tcMod :: (Functor f, Error String < f, Scope Sc Label Decl < f) => ModTree -> Sc
 tcMod modl g = do
   annotated <- constrHierarchy modl g
   resImports annotated $ createModuleOrdering annotated
+  verifyImports annotated
   return annotated
 
 tcAll :: (Functor f, Exists Ty < f, Equals Ty < f, Error String < f, Scope Sc Label Decl < f) => LProg -> Sc -> Free f ()
