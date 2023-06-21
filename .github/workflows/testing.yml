@@ -1,0 +1,13 @@
+on: [push]
+name: Testing
+jobs:
+  cabaltest:
+    name: Cabal Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: haskell/actions/setup@v2
+        with:
+          ghc-version: '8.10.7'
+          cabal-version: '3.6.2.0'
+      - run: cabal test

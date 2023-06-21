@@ -1,0 +1,12 @@
+Program(
+  None()
+, [ Module("A", [Import(ModRef("B"))])
+  , Module("B", [Import(ModRef("C"))])
+  , Module("C", [Import(ModRef("D"))])
+  , Module("D", [Import(ModRef("A"))])
+  , Module(
+      "M"
+    , [Import(ModRef("A"))]
+    )
+  ]
+)
